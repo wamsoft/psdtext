@@ -5,7 +5,7 @@
 # 依存 (appserve / psdparse / zlib) は CMake が FetchContent で取ってくるので、
 # チェックアウトはこのリポジトリだけでよい。
 #
-# Windows が主対象。Linux は移植性の見張り役 (未検証なので continue-on-error)。
+# Windows / Linux とも必須。Linux は POSIX 側のコードパスの見張り役。
 #---------------------------------------------------------------------------
 name: ci
 
@@ -25,7 +25,7 @@ jobs:
       matrix:
         include:
           - { name: windows, os: windows-latest, experimental: false }
-          - { name: linux,   os: ubuntu-latest,  experimental: true }
+          - { name: linux,   os: ubuntu-latest,  experimental: false }
 
     steps:
       - uses: actions/checkout@v4

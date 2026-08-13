@@ -6,7 +6,7 @@
 # 成果物:
 #   psdtext-<version>-windows-x64.zip   ポータブル版 (展開して exe を叩くだけ)
 #   psdtext-<version>-windows-x64.exe   NSIS インストーラ
-#   psdtext-<version>-linux-x64.tar.gz  Linux 版 (ビルドが通ったときだけ)
+#   psdtext-<version>-linux-x64.tar.gz  Linux 版
 #
 # UI は exe に埋め込まれるので、配布物は実行ファイル + README + LICENSE だけ。
 # 依存 (appserve / psdparse / zlib) は静的リンクされ、DLL は要らない。
@@ -30,13 +30,15 @@ jobs:
   package:
     name: package (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
+    # matrix の experimental を true にすると、その OS が落ちても
+    # リリース自体は他の OS の成果物で公開される
     continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - { name: windows, os: windows-latest, experimental: false }
-          - { name: linux,   os: ubuntu-latest,  experimental: true }
+          - { name: linux,   os: ubuntu-latest,  experimental: false }
 
     steps:
       - uses: actions/checkout@v4
