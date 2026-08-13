@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>psdtext</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+<header id="topbar">
+	<div class="brand">psdtext</div>
+	<button id="openBtn" title="PSD を開く">開く…</button>
+	<span id="docPath" class="path" title=""></span>
+	<span id="dirtyBadge" class="badge" hidden>未保存 0</span>
+	<span class="spacer"></span>
+	<label class="chk" title="テキストレイヤだけを表示する"><input type="checkbox" id="onlyText" checked> テキストのみ</label>
+	<input type="search" id="filter" placeholder="レイヤ名 / 本文で絞り込み">
+	<button id="exportBtn" title="テキストを CSV で書き出す">CSV 書き出し</button>
+	<button id="importBtn" title="CSV を読み込んで一括反映">CSV 読み込み</button>
+	<button id="saveBtn" class="primary" title="PSD を保存 (元ファイルは .bak へ退避)">保存</button>
+	<button id="logBtn" class="icon" title="ログ">≡</button>
+</header>
+
+<main id="layout">
+	<nav id="treePane" class="pane">
+		<div class="pane-title">レイヤ</div>
+		<div id="tree"></div>
+	</nav>
+
+	<section id="listPane" class="pane">
+		<div class="pane-title"><span id="listCount"></span></div>
+		<div id="list"></div>
+	</section>
+
+	<aside id="editPane" class="pane">
+		<div class="pane-title">編集</div>
+		<div id="editMeta" class="meta"></div>
+		<textarea id="editText" spellcheck="false" placeholder="テキストレイヤを選ぶと編集できます" disabled></textarea>
+		<div class="edit-actions">
+			<button id="applyBtn" disabled title="本文を反映 (Ctrl+Enter)">反映</button>
+			<button id="revertBtn" disabled title="読み込み時の内容へ戻す">元に戻す</button>
+			<span id="editStatus" class="status"></span>
+		</div>
+		<div class="pane-title">プレビュー</div>
+		<div id="previewWrap"><canvas id="preview"></canvas></div>
+	</aside>
+</main>
+
+<!-- PSD を開く -->
+<div id="openDialog" class="modal" hidden>
+	<div class="modal-box">
+		<div class="modal-head">PSD を開く<button class="icon close" data-close>×</button></div>
+		<div class="modal-body">
+			<div class="row">
+				<input type="text" id="openPath" spellcheck="false" placeholder="D:/work/foo.psd">
+				<button id="openGo" class="primary">開く</button>
+			</div>
+			<div class="browser">
+				<div class="crumbs" id="fsCrumbs"></div>
+				<div id="fsList" class="fs-list"></div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- CSV 読み込み -->
+<div id="importDialog" class="modal" hidden>
+	<div class="modal-head-spacer"></div>
+	<div class="modal-box">
+		<div class="modal-head">CSV を読み込む<button class="icon close" data-close>×</button></div>
+		<div class="modal-body">
+			<p class="hint">
+				<code>lyid</code> 列でレイヤを照合します (並べ替えや改名に強い)。
+				lyid が無い行は <code>path</code> 列で照合します。
+			</p>
+			<div class="row">
+				<input type="file" id="csvFile" accept=".csv,text/csv">
+				<button id="csvDry">確認だけ</button>
+				<button id="csvApply" class="primary" disabled>反映する</button>
+			</div>
+			<div id="csvReport" class="report"></div>
+		</div>
+	</div>
+</div>
+
+<!-- 保存 -->
+<div id="saveDialog" class="modal" hidden>
+	<div class="modal-box">
+		<div class="modal-head">保存<button class="icon close" data-close>×</button></div>
+		<div class="modal-body">
+			<div class="row">
+				<label class="chk"><input type="checkbox" id="saveBackup" checked> 元ファイルを .bak に退避</label>
+			</div>
+			<div class="row">
+				<input type="text" id="savePath" spellcheck="false" placeholder="空欄なら上書き保存">
+				<button id="saveGo" class="primary">保存</button>
+			</div>
+			<p class="hint">
+				編集していないレイヤはバイト単位でそのまま保持されます。
+				合成プレビューは Photoshop で開き直すまで更新されません。
+			</p>
+		</div>
+	</div>
+</div>
+
+<div id="logPanel" hidden>
+	<div class="log-head"><span>ログ</span><button id="logClose" class="icon">×</button></div>
+	<div id="logBody"></div>
+</div>
+
+<div id="toast" hidden></div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

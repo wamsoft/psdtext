@@ -1,0 +1,43 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "default",
+            "description": "Ninja Multi-Config",
+            "generator": "Ninja Multi-Config",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_CXX_STANDARD": "17",
+                "CMAKE_CXX_STANDARD_REQUIRED": "ON"
+            }
+        },
+        {
+            "name": "windows",
+            "description": "Windows / MSVC (run from a Developer Command Prompt)",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_CXX_COMPILER": "cl"
+            },
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            }
+        },
+        {
+            "name": "linux",
+            "inherits": "default",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Linux"
+            }
+        }
+    ],
+    "buildPresets": [
+        { "name": "windows",       "configurePreset": "windows", "configuration": "Debug" },
+        { "name": "windows-rel",   "configurePreset": "windows", "configuration": "Release" },
+        { "name": "linux",         "configurePreset": "linux",   "configuration": "Debug" },
+        { "name": "linux-rel",     "configurePreset": "linux",   "configuration": "Release" }
+    ]
+}

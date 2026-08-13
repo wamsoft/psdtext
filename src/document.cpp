@@ -1,0 +1,533 @@
+//---------------------------------------------------------------------------
+// Document 実装
+//---------------------------------------------------------------------------
+#include "document.h"
+#include "csv.h"
+
+#include <psdfile.h>
+#include <psdparse.h>
+
+#include <appserve/log.h>
+
+#include <algorithm>
+#include <filesystem>
+
+namespace fs = std::filesystem;
+using appserve::Json;
+
+namespace psdtext {
+
+namespace {
+
+//---------------------------------------------------------------------------
+/// UTF-16 (host order) → UTF-8。psdbase.h には逆方向 (utf8ToU16) しか無い。
+std::string u16ToUtf8(const psd::u16str& s)
+{
+	std::string o;
+	o.reserve(s.size() * 3);
+	for (size_t i = 0; i < s.size(); ++i) {
+		unsigned cp = (unsigned)s[i];
+		if (cp >= 0xD800 && cp <= 0xDBFF && i + 1 < s.size()) {
+			unsigned lo = (unsigned)s[i + 1];
+			if (lo >= 0xDC00 && lo <= 0xDFFF) {
+				cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+				++i;
+			}
+		}
+		if (cp < 0x80) {
+			o += (char)cp;
+		} else if (cp < 0x800) {
+			o += (char)(0xC0 | (cp >> 6));
+			o += (char)(0x80 | (cp & 0x3F));
+		} else if (cp < 0x10000) {
+			o += (char)(0xE0 | (cp >> 12));
+			o += (char)(0x80 | ((cp >> 6) & 0x3F));
+			o += (char)(0x80 | (cp & 0x3F));
+		} else {
+			o += (char)(0xF0 | (cp >> 18));
+			o += (char)(0x80 | ((cp >> 12) & 0x3F));
+			o += (char)(0x80 | ((cp >> 6) & 0x3F));
+			o += (char)(0x80 | (cp & 0x3F));
+		}
+	}
+	return o;
+}
+
+//---------------------------------------------------------------------------
+// PSD の段落区切りは CR。UI / CSV では LF で扱うので入口と出口で変換する。
+// (CRLF が混ざっていても LF ひとつに畳む)
+std::string crToLf(const std::string& s)
+{
+	std::string o;
+	o.reserve(s.size());
+	for (size_t i = 0; i < s.size(); ++i) {
+		if (s[i] == '\r') {
+			o += '\n';
+			if (i + 1 < s.size() && s[i + 1] == '\n') ++i;
+		} else {
+			o += s[i];
+		}
+	}
+	return o;
+}
+
+std::string lfToCr(const std::string& s)
+{
+	std::string o;
+	o.reserve(s.size());
+	for (size_t i = 0; i < s.size(); ++i) {
+		if (s[i] == '\r') {
+			o += '\r';
+			if (i + 1 < s.size() && s[i + 1] == '\n') ++i;   // CRLF → CR
+		} else if (s[i] == '\n') {
+			o += '\r';
+		} else {
+			o += s[i];
+		}
+	}
+	return o;
+}
+
+//---------------------------------------------------------------------------
+const char* kindName(const psd::LayerInfo& l)
+{
+	switch (l.layerType) {
+		case psd::LAYER_TYPE_FOLDER: return "folder";
+		case psd::LAYER_TYPE_HIDDEN: return "divider";
+		case psd::LAYER_TYPE_ADJUST: return "adjust";
+		case psd::LAYER_TYPE_FILL:   return "fill";
+		case psd::LAYER_TYPE_TEXT:   return "text";
+		default:                     return "image";
+	}
+}
+
+/// レイヤ名は unicode 名 (luni) を優先し、無ければ pascal 名を使う
+std::string layerName(const psd::LayerInfo& l)
+{
+	if (!l.layerNameUnicode.empty()) return u16ToUtf8(l.layerNameUnicode);
+	return l.layerName;
+}
+
+} // anonymous
+
+//---------------------------------------------------------------------------
+Document::Document() {}
+Document::~Document() = default;
+
+bool Document::isOpen() const { return psd_ && psd_->isLoaded; }
+int  Document::width() const  { return isOpen() ? psd_->header.width : 0; }
+int  Document::height() const { return isOpen() ? psd_->header.height : 0; }
+
+void Document::close()
+{
+	psd_.reset();
+	path_.clear();
+	layers_.clear();
+	texts_.clear();
+}
+
+//---------------------------------------------------------------------------
+bool Document::open(const std::string& p, std::string& err)
+{
+	auto next = std::unique_ptr<psd::PSDFile>(new psd::PSDFile());
+	if (!next->load(p.c_str())) {
+		err = "could not load as PSD: " + p;
+		return false;
+	}
+	psd_  = std::move(next);
+	path_ = p;
+	rebuildIndex();
+	appserve::logI("opened " + p + " (" + std::to_string(layers_.size()) +
+	               " layers, " + std::to_string(texts_.size()) + " text layers)");
+	return true;
+}
+
+//---------------------------------------------------------------------------
+void Document::rebuildIndex()
+{
+	layers_.clear();
+	texts_.clear();
+	if (!isOpen()) return;
+
+	const auto& list = psd_->layerList;
+	layers_.reserve(list.size());
+
+	// まず名前と親を確定させてから、パスを親のパスに繋げて作る。
+	// layerList は下から上の順なので、親は必ず自分より後ろにいるとは限らない
+	// -> 2 パスに分ける。
+	for (size_t i = 0; i < list.size(); ++i) {
+		const psd::LayerInfo& l = list[i];
+		LayerRow r;
+		r.index   = (int)i;
+		r.lyid    = l.layerId;
+		r.parent  = l.parentIndex;
+		r.name    = layerName(l);
+		r.kind    = kindName(l);
+		r.visible = l.isVisible();
+		r.isText  = (l.layerType == psd::LAYER_TYPE_TEXT) && l.textData.present;
+		r.left    = l.left;
+		r.top     = l.top;
+		r.right   = l.right;
+		r.bottom  = l.bottom;
+		layers_.push_back(std::move(r));
+	}
+
+	// パスと深さ (親を辿る。循環していても打ち切る)
+	for (auto& r : layers_) {
+		std::vector<std::string> parts{ r.name };
+		int guard = 0;
+		int p = r.parent;
+		while (p >= 0 && p < (int)layers_.size() && ++guard < 64) {
+			parts.push_back(layers_[(size_t)p].name);
+			p = layers_[(size_t)p].parent;
+		}
+		r.depth = (int)parts.size() - 1;
+		std::string path;
+		for (auto it = parts.rbegin(); it != parts.rend(); ++it) {
+			if (!path.empty()) path += '/';
+			path += *it;
+		}
+		r.path = std::move(path);
+	}
+
+	// テキストレイヤ
+	for (const auto& r : layers_) {
+		if (!r.isText) continue;
+		const psd::LayerInfo& l = list[(size_t)r.index];
+		TextRow t;
+		t.index         = r.index;
+		t.lyid          = r.lyid;
+		t.path          = r.path;
+		t.name          = r.name;
+		t.text          = crToLf(u16ToUtf8(l.textData.text));
+		t.original      = t.text;
+		t.justification = l.textData.justification;
+		t.left = r.left; t.top = r.top; t.right = r.right; t.bottom = r.bottom;
+		if (!l.textData.runs.empty()) {
+			t.font     = u16ToUtf8(l.textData.runs[0].font);
+			t.fontSize = l.textData.runs[0].fontSize;
+		}
+		texts_.push_back(std::move(t));
+	}
+}
+
+//---------------------------------------------------------------------------
+int Document::findByLyid(int lyid) const
+{
+	if (lyid == 0) return -1;
+	for (const auto& t : texts_) if (t.lyid == lyid) return t.index;
+	return -1;
+}
+
+int Document::findByPath(const std::string& path) const
+{
+	if (path.empty()) return -1;
+	int hit = -1;
+	for (const auto& t : texts_) {
+		if (t.path != path) continue;
+		if (hit >= 0) return -1;      // 同名が複数 → 曖昧なので解決しない
+		hit = t.index;
+	}
+	return hit;
+}
+
+//---------------------------------------------------------------------------
+appserve::Json Document::info() const
+{
+	Json j = Json::object();
+	j.set("open", Json(isOpen()));
+	if (!isOpen()) return j;
+	j.set("path",   Json(path_));
+	j.set("width",  Json(width()));
+	j.set("height", Json(height()));
+	j.set("layers", Json((long long)layers_.size()));
+	j.set("texts",  Json((long long)texts_.size()));
+	j.set("dirty",  Json((long long)dirtyCount()));
+	return j;
+}
+
+appserve::Json Document::tree() const
+{
+	Json arr = Json::array();
+	for (const auto& r : layers_) {
+		Json o = Json::object();
+		o.set("index",   Json(r.index));
+		o.set("lyid",    Json(r.lyid));
+		o.set("parent",  Json(r.parent));
+		o.set("depth",   Json(r.depth));
+		o.set("name",    Json(r.name));
+		o.set("path",    Json(r.path));
+		o.set("kind",    Json(r.kind));
+		o.set("visible", Json(r.visible));
+		o.set("text",    Json(r.isText));
+		Json rect = Json::array();
+		rect.push(Json(r.left));  rect.push(Json(r.top));
+		rect.push(Json(r.right)); rect.push(Json(r.bottom));
+		o.set("rect", std::move(rect));
+		arr.push(std::move(o));
+	}
+	return arr;
+}
+
+namespace {
+Json textRowJson(const TextRow& t)
+{
+	Json o = Json::object();
+	o.set("index",         Json(t.index));
+	o.set("lyid",          Json(t.lyid));
+	o.set("path",          Json(t.path));
+	o.set("name",          Json(t.name));
+	o.set("text",          Json(t.text));
+	o.set("original",      Json(t.original));
+	o.set("font",          Json(t.font));
+	o.set("fontSize",      Json(t.fontSize));
+	o.set("justification", Json(t.justification));
+	o.set("dirty",         Json(t.dirty));
+	Json rect = Json::array();
+	rect.push(Json(t.left));  rect.push(Json(t.top));
+	rect.push(Json(t.right)); rect.push(Json(t.bottom));
+	o.set("rect", std::move(rect));
+	return o;
+}
+} // anonymous
+
+appserve::Json Document::texts() const
+{
+	Json arr = Json::array();
+	for (const auto& t : texts_) arr.push(textRowJson(t));
+	return arr;
+}
+
+appserve::Json Document::textAt(int index) const
+{
+	for (const auto& t : texts_) if (t.index == index) return textRowJson(t);
+	return Json();
+}
+
+//---------------------------------------------------------------------------
+bool Document::setText(int index, const std::string& utf8, std::string& err)
+{
+	if (!isOpen()) { err = "no document is open"; return false; }
+	for (auto& t : texts_) {
+		if (t.index != index) continue;
+		if (t.text == utf8) return true;             // 変化なし
+		if (!psd_->setLayerTextUtf8(index, lfToCr(utf8).c_str(), &err)) return false;
+		t.text  = utf8;
+		t.dirty = (t.text != t.original);
+		return true;
+	}
+	err = "layer " + std::to_string(index) + " is not an editable text layer";
+	return false;
+}
+
+bool Document::revert(int index, std::string& err)
+{
+	for (auto& t : texts_) {
+		if (t.index != index) continue;
+		return setText(index, t.original, err);
+	}
+	err = "layer " + std::to_string(index) + " is not a text layer";
+	return false;
+}
+
+bool Document::setName(int index, const std::string& utf8, std::string& err)
+{
+	if (!isOpen()) { err = "no document is open"; return false; }
+	if (index < 0 || index >= (int)layers_.size()) { err = "layer index out of range"; return false; }
+	if (utf8.empty()) { err = "layer name must not be empty"; return false; }
+	if (!psd_->setLayerName(index, utf8.c_str())) { err = "could not rename layer"; return false; }
+	// 名前が変わるとパスも変わるので索引を作り直す。編集済みの本文は PSDFile
+	// 側に入っているので、rebuild しても失われない (dirty 表示だけ作り直す)。
+	std::vector<TextRow> before = texts_;
+	rebuildIndex();
+	for (auto& t : texts_) {
+		for (const auto& b : before) {
+			if (b.index != t.index) continue;
+			t.original = b.original;
+			t.dirty    = (t.text != t.original);
+			break;
+		}
+	}
+	return true;
+}
+
+//---------------------------------------------------------------------------
+int Document::dirtyCount() const
+{
+	int n = 0;
+	for (const auto& t : texts_) if (t.dirty) ++n;
+	return n;
+}
+
+std::vector<int> Document::dirtyIndices() const
+{
+	std::vector<int> out;
+	for (const auto& t : texts_) if (t.dirty) out.push_back(t.index);
+	return out;
+}
+
+//---------------------------------------------------------------------------
+bool Document::save(const std::string& outPath, bool backup, std::string& err)
+{
+	if (!isOpen()) { err = "no document is open"; return false; }
+	std::string target = outPath.empty() ? path_ : outPath;
+
+	std::error_code ec;
+	if (backup && target == path_ && fs::exists(fs::u8path(target), ec)) {
+		std::string bak = target + ".bak";
+		if (!fs::exists(fs::u8path(bak), ec)) {         // 既存 .bak は上書きしない
+			fs::copy_file(fs::u8path(target), fs::u8path(bak), ec);
+			if (ec) {
+				err = "could not create a backup: " + ec.message();
+				return false;
+			}
+			appserve::logI("backup written: " + bak);
+		}
+	}
+
+	// 上書き保存は、開いているファイルを mmap したまま同じパスへ書けないので
+	// いったん一時ファイルへ出してから差し替える。
+	std::string tmp = target + ".psdtext.tmp";
+	if (!psd_->save(tmp.c_str())) {
+		fs::remove(fs::u8path(tmp), ec);
+		err = "could not write " + tmp;
+		return false;
+	}
+
+	if (target == path_) {
+		psd_->clearData();                              // mmap を解放してから差し替える
+	}
+	fs::remove(fs::u8path(target), ec);
+	fs::rename(fs::u8path(tmp), fs::u8path(target), ec);
+	if (ec) {
+		err = "could not replace " + target + ": " + ec.message();
+		return false;
+	}
+
+	// 保存後の状態を正とするため開き直す (dirty がクリアされ、
+	// 次の編集も新しいファイルに対して行われる)
+	std::string reopenErr;
+	if (!open(target, reopenErr)) {
+		err = "saved, but could not reopen " + target + ": " + reopenErr;
+		return false;
+	}
+	appserve::logI("saved " + target);
+	return true;
+}
+
+//---------------------------------------------------------------------------
+bool Document::layerImage(int index, std::vector<uint8_t>& rgba, int& w, int& h,
+                          std::string& err) const
+{
+	if (!isOpen()) { err = "no document is open"; return false; }
+	if (index < 0 || index >= (int)psd_->layerList.size()) {
+		err = "layer index out of range";
+		return false;
+	}
+	const psd::LayerInfo& l = psd_->layerList[(size_t)index];
+	w = l.right - l.left;
+	h = l.bottom - l.top;
+	if (w <= 0 || h <= 0) { err = "layer has no pixels"; return false; }
+	if ((long long)w * h > 64ll * 1024 * 1024) { err = "layer is too large to preview"; return false; }
+
+	// ColorFormat(0, 8, 16, 24) は uint32 = 0xAABBGGRR なので、リトルエンディアン
+	// では R,G,B,A のバイト順になる = canvas の ImageData にそのまま渡せる。
+	static const psd::ColorFormat kRgbaLe(0, 8, 16, 24);
+	rgba.assign((size_t)w * (size_t)h * 4, 0);
+	if (!psd_->getLayerImage(l, rgba.data(), kRgbaLe, w * 4,
+	                         psd::IMAGE_MODE_MASKEDIMAGE)) {
+		err = "could not render the layer";
+		return false;
+	}
+	return true;
+}
+
+//---------------------------------------------------------------------------
+// CSV
+//---------------------------------------------------------------------------
+std::string Document::exportCsv() const
+{
+	csv::Table t;
+	t.push_back({ "lyid", "path", "text" });
+	for (const auto& r : texts_) {
+		t.push_back({ std::to_string(r.lyid), r.path, r.text });
+	}
+	return csv::write(t, true);
+}
+
+std::vector<ImportRow> Document::importCsv(const std::string& text, bool apply,
+                                           std::string& err)
+{
+	std::vector<ImportRow> out;
+	csv::Table table;
+	if (!csv::parse(text, table, &err)) return out;
+	if (table.empty()) { err = "the CSV is empty"; return out; }
+
+	// ヘッダから列位置を決める (順序が違っても、余分な列があっても読める)
+	int colLyid = -1, colPath = -1, colText = -1;
+	{
+		const csv::Row& head = table[0];
+		for (size_t i = 0; i < head.size(); ++i) {
+			std::string h = head[i];
+			std::transform(h.begin(), h.end(), h.begin(),
+			               [](unsigned char c) { return (char)tolower(c); });
+			if (h == "lyid" || h == "id")            colLyid = (int)i;
+			else if (h == "path" || h == "layer")    colPath = (int)i;
+			else if (h == "text" || h == "本文")     colText = (int)i;
+		}
+	}
+	if (colText < 0) {
+		err = "the CSV needs a 'text' column (got: " +
+		      (table[0].empty() ? std::string("(no header)") : table[0][0]) + " ...)";
+		return out;
+	}
+
+	for (size_t r = 1; r < table.size(); ++r) {
+		const csv::Row& row = table[r];
+		auto cell = [&](int c) -> std::string {
+			return (c >= 0 && c < (int)row.size()) ? row[(size_t)c] : std::string();
+		};
+
+		ImportRow ir;
+		ir.lyid = colLyid >= 0 ? atoi(cell(colLyid).c_str()) : 0;
+		ir.path = cell(colPath);
+		ir.text = cell(colText);
+
+		// lyid を主キーにする (レイヤの並べ替えや改名に強い)。無ければパス。
+		ir.index = findByLyid(ir.lyid);
+		if (ir.index < 0) ir.index = findByPath(ir.path);
+		if (ir.index < 0) {
+			ir.status  = "notfound";
+			ir.message = ir.lyid ? "no text layer with lyid " + std::to_string(ir.lyid)
+			                     : "no unique text layer at '" + ir.path + "'";
+			out.push_back(std::move(ir));
+			continue;
+		}
+
+		const TextRow* cur = nullptr;
+		for (const auto& t : texts_) if (t.index == ir.index) { cur = &t; break; }
+		if (cur && cur->text == ir.text) {
+			ir.status = "same";
+			out.push_back(std::move(ir));
+			continue;
+		}
+
+		if (!apply) {
+			ir.status = "changed";
+			out.push_back(std::move(ir));
+			continue;
+		}
+
+		std::string setErr;
+		if (setText(ir.index, ir.text, setErr)) {
+			ir.status = "changed";
+		} else {
+			ir.status  = "error";
+			ir.message = setErr;
+		}
+		out.push_back(std::move(ir));
+	}
+	return out;
+}
+
+} // namespace psdtext
