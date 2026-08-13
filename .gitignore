@@ -2,3 +2,6 @@ build/
 .vs/
 .cache/
 compile_commands.json
+dist/
+_CPack_Packages/
+*.zip

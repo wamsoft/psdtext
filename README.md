@@ -126,6 +126,29 @@ cmake --preset windows -DPSDTEXT_APPSERVE_DIR=D:/test/appserve \
 - 合成プレビュー画像は編集後も古いまま。Photoshop で開き直すと再合成される
 - テキストの流し込み枠 (bounds) は変えないので、長くすると枠からはみ出る
 
+## 配布とリリース
+
+`appserve_package()` (appserve 提供) で zip / インストーラを作る。タグを打つと
+GitHub Actions が Release を自動生成する。
+
+```bash
+cmake --build --preset windows-rel
+cpack --config build/windows/CPackConfig.cmake -C Release -B dist   # 手元で作る
+git tag v0.1.0 && git push origin v0.1.0                            # リリースする
+```
+
+配布物は `psdtext.exe` + README + LICENSE の 3 つだけ。UI は exe に埋め込まれ、
+依存 (appserve / psdparse / zlib) は静的リンクされるので DLL は要らない。
+
+リリースの再現性を確保したいときは依存をタグに固定する:
+
+```bash
+cmake -B build -DPSDTEXT_APPSERVE_TAG=v0.1.0 -DPSDTEXT_PSDPARSE_TAG=v0.8.1
+```
+
+詳細は appserve の [docs/RELEASE.md](https://github.com/wamsoft/appserve/blob/master/docs/RELEASE.md)。
+
+
 ## ライセンス
 
 MIT

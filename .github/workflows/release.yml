@@ -1,0 +1,116 @@
+#---------------------------------------------------------------------------
+# リリース — タグを打つと配布物が GitHub Release にぶら下がる
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# 成果物:
+#   psdtext-<version>-windows-x64.zip   ポータブル版 (展開して exe を叩くだけ)
+#   psdtext-<version>-windows-x64.exe   NSIS インストーラ
+#   psdtext-<version>-linux-x64.tar.gz  Linux 版 (ビルドが通ったときだけ)
+#
+# UI は exe に埋め込まれるので、配布物は実行ファイル + README + LICENSE だけ。
+# 依存 (appserve / psdparse / zlib) は静的リンクされ、DLL は要らない。
+#---------------------------------------------------------------------------
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'バージョン (例 0.1.0)。タグ以外から試すとき用'
+        required: true
+        default: '0.0.0-dev'
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: package (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: windows, os: windows-latest, experimental: false }
+          - { name: linux,   os: ubuntu-latest,  experimental: true }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve the version
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            V="${{ github.event.inputs.version }}"
+          else
+            V="${GITHUB_REF_NAME#v}"      # v0.1.0 -> 0.1.0
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "packaging version $V"
+
+      - name: Install NSIS (Windows installer)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue) -and
+              -not (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe")) {
+            choco install nsis -y --no-progress
+          }
+          $nsis = "${env:ProgramFiles(x86)}\NSIS"
+          if (Test-Path $nsis) { echo $nsis >> $env:GITHUB_PATH }
+
+      - name: Configure
+        run: >
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          -DPSDTEXT_VERSION=${{ steps.ver.outputs.version }}
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Package
+        run: cpack --config build/CPackConfig.cmake -C Release -B dist
+
+      - name: List the artifacts
+        shell: bash
+        run: ls -la dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: psdtext-${{ matrix.name }}
+          path: |
+            dist/*.zip
+            dist/*.exe
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: package
+    # Linux が落ちていても Windows の成果物だけで公開する
+    if: always() && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List what will be published
+        run: ls -la artifacts/
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            artifacts/* \
+          || gh release upload "$GITHUB_REF_NAME" artifacts/* --clobber

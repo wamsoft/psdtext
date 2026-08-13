@@ -9,7 +9,7 @@
 # 明示するときは -DPSDTEXT_APPSERVE_DIR=... / -DPSDTEXT_PSDPARSE_DIR=...
 #---------------------------------------------------------------------------
 cmake_minimum_required(VERSION 3.16)
-project(psdtext LANGUAGES CXX)
+project(psdtext VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -35,4 +35,14 @@ target_link_libraries(psdtext PRIVATE appserve::core psdparse)
 # 開発中はカレント/exe 隣の web/ が優先されるので、編集はそのまま反映される。
 appserve_embed_web(psdtext WEB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/web)
 
-install(TARGETS psdtext RUNTIME DESTINATION .)
+# 配布物 (zip / Windows は NSIS インストーラも)。install() の設定込み。
+#   cmake --build build --config Release
+#   cpack --config build/CPackConfig.cmake -C Release -B dist
+# リリース workflow はタグの値を -DPSDTEXT_VERSION=... で渡す
+set(PSDTEXT_VERSION "${PROJECT_VERSION}" CACHE STRING
+    "Version stamped into release packages")
+
+appserve_package(psdtext
+    VERSION     ${PSDTEXT_VERSION}
+    DESCRIPTION "Edit PSD text layers without opening Photoshop")
+appserve_package_finalize()

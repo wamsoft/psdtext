@@ -10,6 +10,8 @@
 #include <appserve/log.h>
 
 #include <algorithm>
+#include <cctype>
+#include <cstdlib>
 #include <filesystem>
 
 namespace fs = std::filesystem;
@@ -86,6 +88,24 @@ std::string lfToCr(const std::string& s)
 		}
 	}
 	return o;
+}
+
+//---------------------------------------------------------------------------
+// Photoshop のテキストレイヤは本文の末尾に段落マーク (CR) を 1 つ持つ慣習が
+// ある。そのまま見せると編集欄に空行が 1 行余計に出るし、「編集して保存 →
+// 読み直すと末尾に改行が増えている」という往復の不安定さも生む。
+// 表示側では 1 つだけ剥がし、書き戻すときに 1 つだけ足して辻褄を合わせる
+// (末尾に本当に空段落を入れたい場合は 2 つになるので、意図は保たれる)。
+std::string stripTrailingParagraph(std::string s)
+{
+	if (!s.empty() && s.back() == '\n') s.pop_back();
+	return s;
+}
+
+std::string ensureTrailingParagraph(std::string s)
+{
+	if (s.empty() || s.back() != '\r') s += '\r';
+	return s;
 }
 
 //---------------------------------------------------------------------------
@@ -199,7 +219,7 @@ void Document::rebuildIndex()
 		t.lyid          = r.lyid;
 		t.path          = r.path;
 		t.name          = r.name;
-		t.text          = crToLf(u16ToUtf8(l.textData.text));
+		t.text          = stripTrailingParagraph(crToLf(u16ToUtf8(l.textData.text)));
 		t.original      = t.text;
 		t.justification = l.textData.justification;
 		t.left = r.left; t.top = r.top; t.right = r.right; t.bottom = r.bottom;
@@ -311,7 +331,8 @@ bool Document::setText(int index, const std::string& utf8, std::string& err)
 	for (auto& t : texts_) {
 		if (t.index != index) continue;
 		if (t.text == utf8) return true;             // 変化なし
-		if (!psd_->setLayerTextUtf8(index, lfToCr(utf8).c_str(), &err)) return false;
+		if (!psd_->setLayerTextUtf8(
+			index, ensureTrailingParagraph(lfToCr(utf8)).c_str(), &err)) return false;
 		t.text  = utf8;
 		t.dirty = (t.text != t.original);
 		return true;

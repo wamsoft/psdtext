@@ -1,0 +1,128 @@
+#---------------------------------------------------------------------------
+# CI — ビルドしてスモークテスト (起動して PSD を開き、テキストを書き換えて
+#      保存し直せるか) まで通す
+#
+# 依存 (appserve / psdparse / zlib) は CMake が FetchContent で取ってくるので、
+# チェックアウトはこのリポジトリだけでよい。
+#
+# Windows が主対象。Linux は移植性の見張り役 (未検証なので continue-on-error)。
+#---------------------------------------------------------------------------
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: windows, os: windows-latest, experimental: false }
+          - { name: linux,   os: ubuntu-latest,  experimental: true }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Locate the executable
+        id: exe
+        shell: bash
+        run: |
+          for p in build/psdtext build/psdtext.exe \
+                   build/Release/psdtext.exe build/Release/psdtext; do
+            if [ -f "$p" ]; then echo "path=$p" >> "$GITHUB_OUTPUT"; exit 0; fi
+          done
+          echo "could not find the built executable:" && find build -maxdepth 2 -type f -name 'psdtext*'
+          exit 1
+
+      - name: Fetch a PSD with text layers
+        shell: bash
+        run: |
+          # psdparse のテスト資材を使う (テキストレイヤ入りのサンプル)
+          mkdir -p testdata
+          curl -sfL -o testdata/textboxsample.psd \
+            https://raw.githubusercontent.com/wamsoft/psdparse/master/tests/data/textboxsample.psd
+          ls -la testdata/
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXE="${{ steps.exe.outputs.path }}"
+          B=http://127.0.0.1:18998
+
+          "$EXE" --no-browser --port=18998 --no-token --idle-timeout=0 &
+          for i in $(seq 1 40); do
+            curl -sf $B/_app/info > /dev/null && break
+            sleep 0.25
+          done
+
+          echo "--- 埋め込み UI ---"
+          curl -sf -o /dev/null -w 'index.html %{http_code}\n' $B/
+
+          echo "--- PSD を開く ---"
+          printf '{"path":"%s/testdata/textboxsample.psd"}' "$PWD" > open.json
+          curl -sf -X POST -H 'Content-Type: application/json' \
+            --data-binary @open.json $B/api/psd/open -o opened.json
+          python3 -c "
+          import json
+          d = json.load(open('opened.json', encoding='utf-8'))
+          assert d['open'], d
+          assert len(d['texts']) >= 1, 'no text layers were found'
+          print('layers=%d texts=%d' % (d['layers'], len(d['texts'])))
+          print('first text:', repr(d['texts'][0]['text'][:40]))
+          open('idx.txt','w').write(str(d['texts'][0]['index']))
+          "
+
+          echo "--- 本文を書き換える ---"
+          IDX=$(cat idx.txt)
+          printf '{"index":%s,"text":"CI smoke test \\u2705"}' "$IDX" > edit.json
+          curl -sf -X POST -H 'Content-Type: application/json' \
+            --data-binary @edit.json $B/api/psd/text -o edited.json
+          python3 -c "
+          import json
+          d = json.load(open('edited.json', encoding='utf-8'))
+          assert d['dirty'], d
+          assert d['text'] == 'CI smoke test ✅', repr(d['text'])
+          print('edit ok:', repr(d['text']))
+          "
+
+          echo "--- CSV 書き出し / 取り込み ---"
+          curl -sf $B/api/psd/export -o texts.csv
+          head -c 80 texts.csv | od -c | head -2
+          curl -sf -X POST -H 'Content-Type: text/csv' \
+            --data-binary @texts.csv "$B/api/psd/import?apply=0" -o dry.json
+          python3 -c "
+          import json
+          d = json.load(open('dry.json', encoding='utf-8'))
+          assert d['notfound'] == 0, d
+          print('csv round trip ok:', {k: d[k] for k in ('changed','same','notfound','failed')})
+          "
+
+          echo "--- 別名保存して読み直す ---"
+          printf '{"path":"%s/out.psd"}' "$PWD" > save.json
+          curl -sf -X POST -H 'Content-Type: application/json' \
+            --data-binary @save.json $B/api/psd/save -o saved.json
+          python3 -c "
+          import json
+          d = json.load(open('saved.json', encoding='utf-8'))
+          assert d['dirty'] == 0, d
+          assert any(t['text'] == 'CI smoke test ✅' for t in d['texts']), d['texts']
+          print('saved and reloaded:', d['path'])
+          "
+
+          echo "--- REPL 経由で停止 ---"
+          curl -sf -X POST -d '.quit' $B/_app/repl
+          wait %1 || true

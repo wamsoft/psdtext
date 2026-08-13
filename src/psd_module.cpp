@@ -10,6 +10,7 @@
 
 #include <appserve/appserve.h>
 
+#include <cstdlib>
 #include <stdexcept>
 
 using namespace appserve;
