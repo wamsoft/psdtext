@@ -5,3 +5,6 @@ compile_commands.json
 dist/
 _CPack_Packages/
 *.zip
+
+# テスト用 PSD は資材なのでコミットしない (CI は在れば使う / 無ければ省略)
+testdata/
