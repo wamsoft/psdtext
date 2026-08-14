@@ -10,6 +10,8 @@
 	<a href="#h-marks">Formatting (marks)</a>
 	<a href="#h-tags">Formatting tags</a>
 	<a href="#h-layers">Working with layers</a>
+	<a href="#h-sheet">Edit as a list</a>
+	<a href="#h-rename">Renaming layers in bulk</a>
 	<a href="#h-csv">Bulk editing with CSV</a>
 	<a href="#h-save">How saving works</a>
 	<a href="#h-keys">Shortcuts</a>
@@ -263,6 +265,100 @@ of the range goes back to pink — not back to the base</pre>
 			moves it <b>together with its contents</b>. Moving across levels (in and
 			out of folders) is not supported — do that in Photoshop.
 			At either end you get "cannot move any further".
+		</dd>
+	</dl>
+</section>
+
+<section id="h-sheet">
+	<h2>Edit as a list</h2>
+	<p>
+		<b>Edit as a list</b> puts the layers in a <b>table</b> so you can rewrite
+		them together. If two or more layers are selected you get those; otherwise
+		you get all of them. It does what the CSV round trip does, without the file
+		— and it still moves data to and from Excel.
+	</p>
+	<dl>
+		<dt>What is listed</dt>
+		<dd>
+			Text layers by default. Tick <b>Show every layer</b> and folders and
+			images appear as rows too — but only their <b>name</b> can be changed;
+			their body and formatting cells are inert.
+		</dd>
+		<dt>What you can change</dt>
+		<dd>
+			Layer name / body / font / size / colour / alignment.
+			<b>Rewriting a body drops the formatting marks inside it</b> (those rows
+			are marked ⚠). The font cell <b>suggests fonts as you type</b> (local
+			names work too). The suggestions are deliberately short: <b>the fonts
+			this PSD uses, plus the ones you starred (★) in the font picker</b>.
+			For anything else press <code>…</code> to open the usual picker — star
+			it there and it joins the suggestions from then on.
+		</dd>
+		<dt>Copy and paste</dt>
+		<dd>
+			The checkbox in each header decides <b>which columns copy and paste
+			touch</b>. The buttons switch the whole set at once: body only,
+			formatting only, layer name only, everything but the name, all.
+			<ul>
+				<li><b>Paste</b> (<kbd>Ctrl</kbd>+<kbd>V</kbd>) — with the cursor in a
+					cell, <b>that cell is the anchor</b>: the clipboard spreads right from
+					there, into the selected columns only. <b>With no cell focused it
+					fills the selected columns from the top row.</b> With "body only"
+					selected, a sheet of translations drops straight in</li>
+				<li><b>Copy table</b> puts the selected columns on the clipboard as
+					tab-separated text, ready for Excel. Bodies with newlines are
+					quoted with <code>"</code> and paste back in that form</li>
+			</ul>
+		</dd>
+		<dt>Applying</dt>
+		<dd>
+			Nothing touches the PSD until you press <b>Apply changes</b>. Layer names
+			go over in one request, then bodies and formatting follow row by row.
+			Applying does <b>not</b> save the file — that is the Save button.
+		</dd>
+	</dl>
+</section>
+
+<section id="h-rename">
+	<h2>Renaming layers in bulk</h2>
+	<p>
+		<b>Rename…</b> under the tree opens a screen that rebuilds layer names from
+		rules. It is not limited to text layers — <b>folders and images</b> can be
+		renamed too.
+	</p>
+	<dl>
+		<dt>Which layers</dt>
+		<dd>The selected ones, the text layers, or every layer.</dd>
+		<dt>Rules (applied in this order)</dt>
+		<dd>
+			<ol>
+				<li><b>Find and replace</b>. As a <b>regular expression</b> this covers
+					things like <code>^(.{4}).*$</code> → <code>$1</code>
+					(back-references are <code>$1</code>). Case matching is optional</li>
+				<li><b>Add to the front / add to the end</b></li>
+				<li><b>Number them</b> — first number, digits, which end it goes on,
+					and the separator</li>
+			</ol>
+			<p>
+				The number can go <b>anywhere you want</b>: write <code>{n}</code> in
+				"Replace with", "Add to the front" or "Add to the end" and the number
+				lands there. <code>{n:3}</code> sets the width inline
+				(<code>007</code>) and <code>{n+10}</code> shifts it; without a width
+				it follows the "Digits" box. While <code>{n}</code> is in use the
+				automatic numbering is switched off, so you never get two numbers.
+			</p>
+			<p>
+				It mixes with <b>back-references</b>: find <code>tx_c(\d+)</code>,
+				replace with <code>tx_{n:2}_$1</code>.
+			</p>
+		</dd>
+		<dt>Check before applying</dt>
+		<dd>
+			The list below shows "now → after", plus the start of the body for text
+			layers. Rows that change are highlighted, and rows that <b>would end up
+			empty are left alone</b>. A regular expression that does not parse is
+			reported and blocks applying. Once applied, <b>the rules are cleared</b>
+			so the same prefix cannot be added twice by accident.
 		</dd>
 	</dl>
 </section>

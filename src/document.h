@@ -7,6 +7,7 @@
 #pragma once
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <appserve/json.h>
@@ -119,6 +120,10 @@ public:
 	             std::string* warnOut = nullptr);
 	/// レイヤ名を変更する
 	bool setName(int index, const std::string& utf8, std::string& err);
+	/// レイヤ名をまとめて変更する (索引の作り直しは最後に一度だけ)。
+	/// 変えられた件数を返し、駄目だったものは errOut に index ごとの理由が入る。
+	int  setNames(const std::vector<std::pair<int, std::string>>& names,
+	              std::vector<std::pair<int, std::string>>* errOut = nullptr);
 	/// 読み込み時の内容へ戻す
 	bool revert(int index, std::string& err);
 	/// 段落の行揃えを変える (paraIndex < 0 で全段落)
@@ -168,10 +173,15 @@ public:
 	const std::vector<TextRow>&  textRows() const { return texts_; }
 	const std::vector<LayerRow>& layerRows() const { return layers_; }
 
+	/// 永続レイヤ ID から index を引く (種別を問わない。見つからなければ -1)。
+	/// index は並べ替えで動くが lyid は動かないので、外から指す時はこちらが安全。
+	int  findLayerByLyid(int lyid) const;
+
 private:
 	void rebuildIndex();
 	/// rebuildIndex の後に original / base を戻してタグ表現を組み直す
 	void inheritTextState(const std::vector<TextRow>& before, bool byLyid);
+	/// テキストレイヤの中から lyid で引く (CSV の取り込み用)
 	int  findByLyid(int lyid) const;
 	int  findByPath(const std::string& path) const;
 

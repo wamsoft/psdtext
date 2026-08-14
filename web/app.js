@@ -54,6 +54,8 @@ const state = {
 	multiStatus: null,    // 一括操作の結果表示
 	exportSel: false,     // 書き出しダイアログを「選択ぶんだけ」で開く
 	sheet: null,          // 一覧編集の行データ {rows, orig}
+	sheetAll: false,      // 一覧編集にテキスト以外のレイヤも出す (名前だけ書き換え)
+	sheetCols: null,      // コピー / 貼り付けの対象カラム (Set。null で全部)
 	headTag: '',          // 本文の先頭にある基準への指定 (編集欄には出さない)
 	composing: false,     // IME 変換中
 };
@@ -1585,11 +1587,13 @@ async function moveLayer(up) {
 /// target は 'base' (レイヤの初期書式) / 'mark' (選択中のマーク・範囲) /
 /// 'multi' (選択中のレイヤすべて)
 async function openFontDialog(target) {
-	if (!curText()) { toast(tr('msg.needText'), true); return; }
+	const forSheet = typeof target === 'string' && target.startsWith('sheet:');
+	if (!forSheet && !curText()) { toast(tr('msg.needText'), true); return; }
 	state.fontTarget = target || 'base';
 	$('#fontDialog').hidden = false;
 	$('#fontManual').value = '';
 	$('#fontDlgTarget').textContent = tr(
+		forSheet                     ? 'dlg.fontForSheet' :
 		state.fontTarget === 'multi' ? 'dlg.fontForMulti' :
 		state.fontTarget === 'base'  ? 'dlg.fontForBase'  : 'dlg.fontForMark');
 
@@ -1709,6 +1713,7 @@ function togglePresetFont(ps) {
 	app.post('/api/app/settings', { fontPresets: all, fontPreset: name }).catch(() => {});
 	renderSysFonts();
 	renderPresetBar();
+	renderFontList();      // 一覧編集の候補は ★ で決まるので合わせて作り直す
 }
 
 /// プリセットの切り替え / 追加
@@ -1736,6 +1741,12 @@ function renderPresetBar() {
 function pickFont(name) {
 	const n = String(name || '').trim();
 	if (!n) return;
+	// 一覧編集の行から開いたときは、その行のセルへ書くだけ
+	if (typeof state.fontTarget === 'string' && state.fontTarget.startsWith('sheet:')) {
+		$('#fontDialog').hidden = true;
+		setSheetFont(Number(state.fontTarget.slice(6)), n);
+		return;
+	}
 	const t = curText();
 	if (!t) return;
 	if (!t.fonts.includes(n)) t.fonts.push(n);
@@ -1817,6 +1828,191 @@ async function openPsd(path) {
 }
 
 //---------------------------------------------------------------------------
+// 一括リネーム
+//
+// 検索置換 (正規表現も) / 前後に足す / 連番 を順にかけて、結果を一覧で見てから
+// 適用する。レイヤ名は種別を問わず変えられるので、フォルダや画像も対象になる。
+//---------------------------------------------------------------------------
+function openRenameDialog() {
+	if (!state.info.open) { toast(tr('msg.needText'), true); return; }
+	// 複数選んでいるなら、その選択を直したいはず
+	$('#rnTarget').value = state.multi.size > 1 ? 'sel' : 'all';
+	setRenameStatus('');
+	renderRenamePreview();
+	$('#renameDialog').hidden = false;
+}
+
+function setRenameStatus(msg, cls) {
+	const el = $('#rnStatus');
+	el.textContent = msg || '';
+	el.className = 'status' + (cls ? ' ' + cls : '');
+}
+
+/// 名前を変える対象。画面の並び (Photoshop と同じ上から) で返す。
+function renameTargets() {
+	const mode = $('#rnTarget').value;
+	return [...state.tree].reverse()
+		.filter(l => l.kind !== 'divider')
+		.filter(l => mode === 'all'  ? true
+		           : mode === 'text' ? l.text
+		                             : state.multi.has(l.index));
+}
+
+/// 「探す」を正規表現にする。素の文字列のときは、そのまま探す形へ直す。
+/// 書きかけの正規表現でも画面が壊れないよう、駄目なら null を返す。
+function renameRegex() {
+	const find = $('#rnFind').value;
+	if (!find) return { rx: null };
+	const flags = 'g' + ($('#rnCase').checked ? '' : 'i');
+	const src = $('#rnRegex').checked ? find : find.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	try {
+		return { rx: new RegExp(src, flags) };
+	} catch (e) {
+		return { rx: null, error: e.message };
+	}
+}
+
+/// 連番の差し込み口。置換・先頭・末尾のどこにでも書ける。
+///   {n}    「桁」欄の桁数でゼロ埋め
+///   {n:3}   その場で桁数を決める (3 桁)
+///   {n+10} / {n:3+10}  その番号だけずらす
+const SEQ_VAR = /\{n(?::(\d+))?(?:\+(\d+))?\}/g;
+
+function seqVarUsed() {
+	return ['#rnRepl', '#rnPrefix', '#rnSuffix']
+		.some(id => { SEQ_VAR.lastIndex = 0; return SEQ_VAR.test($(id).value); });
+}
+
+function seqStart() { return parseInt($('#rnSeqStart').value, 10) || 0; }
+function seqPad() {
+	return Math.min(8, Math.max(1, parseInt($('#rnSeqPad').value, 10) || 1));
+}
+
+/// 文字列の中の {n} を、その行の番号で埋める
+function fillSeqVars(s, num) {
+	return s.replace(SEQ_VAR, (m, pad, plus) =>
+		String(num + (plus ? Number(plus) : 0))
+			.padStart(pad ? Math.min(8, Number(pad)) : seqPad(), '0'));
+}
+
+/// 規則を順にかけた新しい名前。nth は対象の中で何番目か (連番用)。
+function renamedName(name, nth, rx) {
+	const num = seqStart() + nth;
+	let s = name;
+	if (rx) s = s.replace(rx, fillSeqVars($('#rnRepl').value, num));
+	s = fillSeqVars($('#rnPrefix').value, num) + s + fillSeqVars($('#rnSuffix').value, num);
+	// {n} を自分で置いているなら、末尾/先頭への自動付与はしない (二重になる)
+	if ($('#rnSeq').checked && !seqVarUsed()) {
+		const sep = $('#rnSeqSep').value;
+		const text = String(num).padStart(seqPad(), '0');
+		s = $('#rnSeqAt').value === 'prefix' ? text + sep + s : s + sep + text;
+	}
+	return s;
+}
+
+/// 変更後の姿を作る。空になってしまう行は印を付けて対象から外す。
+function renamePlan() {
+	const { rx, error } = renameRegex();
+	const rows = renameTargets().map((l, i) => {
+		const name = renamedName(l.name, i, rx);
+		return {
+			index: l.index, lyid: l.lyid, kind: l.kind, depth: l.depth,
+			old: l.name, name,
+			changed: name !== l.name,
+			empty: !name.trim(),
+			body: l.text ? ((textOf(l.index) || {}).plain || '').replace(/\n/g, ' ') : '',
+		};
+	});
+	return { rows, error };
+}
+
+function renderRenamePreview() {
+	const { rows, error } = renamePlan();
+	const table = $('#rnTable');
+	table.textContent = '';
+
+	const head = document.createElement('tr');
+	for (const k of ['kind', 'old', 'new', 'body']) {
+		const th = document.createElement('th');
+		th.textContent = tr('rn.col.' + k);
+		th.className = 'c-rn-' + k;
+		head.appendChild(th);
+	}
+	table.appendChild(head);
+
+	for (const r of rows) {
+		const line = document.createElement('tr');
+		if (r.empty) line.className = 'bad';
+		else if (r.changed) line.className = 'hit';
+
+		const kind = document.createElement('td');
+		kind.className = 'c-rn-kind';
+		kind.textContent = KIND_ICON[r.kind] || '·';
+		kind.title = r.kind;
+
+		const old = document.createElement('td');
+		old.className = 'c-rn-old';
+		old.textContent = r.old;
+		old.title = r.old;
+		old.style.paddingLeft = (r.depth * 12 + 4) + 'px';
+
+		const now = document.createElement('td');
+		now.className = 'c-rn-new';
+		now.textContent = r.empty ? tr('rn.emptyName') : r.name;
+		now.title = r.name;
+
+		const body = document.createElement('td');
+		body.className = 'c-rn-body';
+		body.textContent = r.body;
+		body.title = r.body;
+
+		line.append(kind, old, now, body);
+		table.appendChild(line);
+	}
+
+	// {n} を書いているときは、末尾/先頭への自動付与は止まる (二重を避けるため)
+	const byVar = seqVarUsed();
+	$('#rnSeqNote').textContent = byVar ? tr('rn.seqByVar') : '';
+	for (const id of ['#rnSeqAt', '#rnSeqSep', '#rnSeq']) $(id).disabled = byVar;
+
+	const n = rows.filter(r => r.changed && !r.empty).length;
+	$('#rnCount').textContent = tr('rn.count', rows.length, n);
+	$('#rnApply').disabled = !n;
+	$('#rnApply').textContent = n ? tr('rn.applyN', n) : tr('rn.apply');
+	if (error) setRenameStatus(tr('rn.badRegex', error), 'error');
+	else if ($('#rnStatus').classList.contains('error')) setRenameStatus('');
+}
+
+async function applyRename() {
+	const { rows } = renamePlan();
+	const todo = rows.filter(r => r.changed && !r.empty);
+	if (!todo.length) return;
+	setRenameStatus(tr('multi.working'));
+	try {
+		const res = await app.post('/api/psd/names', {
+			names: todo.map(r => r.lyid ? { lyid: r.lyid, name: r.name }
+			                            : { index: r.index, name: r.name }),
+		});
+		applyDoc(res, { keepVisibility: true });
+		// 同じ規則がもう一度かからないよう、済んだら条件を空にする
+		// (「先頭に足す」を二度押しすると二重に付いてしまうため)
+		resetRenameRules();
+		const failed = (res.errors || []).length;
+		setRenameStatus(failed ? tr('rn.doneFailed', res.renamed || 0, failed)
+		                       : tr('rn.done', res.renamed || 0),
+		                failed ? 'error' : 'ok');
+		renderRenamePreview();
+	} catch (e) {
+		setRenameStatus(serverMessage(e.message), 'error');
+	}
+}
+
+function resetRenameRules() {
+	for (const id of ['#rnFind', '#rnRepl', '#rnPrefix', '#rnSuffix']) $(id).value = '';
+	$('#rnSeq').checked = false;
+}
+
+//---------------------------------------------------------------------------
 // 一覧編集
 //
 // 選んだレイヤ (選んでいなければ全テキストレイヤ) を表にして、本文と初期書式を
@@ -1830,29 +2026,70 @@ const SHEET_COLS = ['name', 'text', 'font', 'size', 'color', 'align'];
 
 function openSheet() {
 	if (!state.info.open) { toast(tr('msg.needText'), true); return; }
-	loadSheet();
+	$('#sheetAll').checked = state.sheetAll;
+	// 表を組む前に出しておく。隠れたままだと高さが測れず、
+	// レイヤ名の欄を中身に合わせられない
 	$('#sheetDialog').hidden = false;
+	loadSheet();
+	// フォント欄の候補。取れていなくても手入力でやっていけるので待たない
+	loadSystemFonts().then(renderFontList);
 }
 
 /// 表の元データを作り直す (画面の値は捨てる)
 function loadSheet() {
 	const picked = selectedTextLayers();
-	const rows = (picked.length > 1 ? picked : state.texts).map(t => {
-		const st = tg.styleAtHead(t.text, baseOf(t));
-		const marks = tg.parseMarks(t.text).filter(m => m.start > 0);
-		return {
-			index: t.index,
-			lyid: t.lyid,
-			name: t.name,
-			text: tg.stripToPlain(t.text),
-			font: st.font, size: st.size, color: tg.normColor(st.color),
-			align: (t.paragraphJust && t.paragraphJust[0]) || 0,
-			marks: marks.length,
-		};
-	});
+	const only = picked.length > 1 ? new Set(picked.map(t => t.index)) : null;
+	const rows = sheetRows(only);
 	state.sheet = { rows, orig: rows.map(r => Object.assign({}, r)) };
 	renderSheet();
 	setSheetStatus('');
+}
+
+/// 表に出す行。既定はテキストレイヤだけ、「全レイヤ」ならフォルダや画像も。
+/// only があれば、その index のものに絞る (複数選択しているとき)。
+function sheetRows(only) {
+	if (!state.sheetAll) {
+		const all = only ? state.texts.filter(t => only.has(t.index)) : state.texts;
+		return all.map(t => textSheetRow(t, nodeOf(t.index)));
+	}
+	// ツリーの並び (Photoshop の見た目と同じ上から順) で出す
+	return [...state.tree].reverse()
+		.filter(l => l.kind !== 'divider')
+		.filter(l => !only || only.has(l.index))
+		.map(l => {
+			const t = l.text ? textOf(l.index) : null;
+			return t ? textSheetRow(t, l) : plainSheetRow(l);
+		});
+}
+
+function textSheetRow(t, node) {
+	const st = tg.styleAtHead(t.text, baseOf(t));
+	const marks = tg.parseMarks(t.text).filter(m => m.start > 0);
+	return {
+		index: t.index,
+		lyid: t.lyid,
+		isText: true,
+		depth: (node && node.depth) || 0,
+		kind: 'text',
+		name: t.name,
+		text: tg.stripToPlain(t.text),
+		font: st.font, size: st.size, color: tg.normColor(st.color),
+		align: (t.paragraphJust && t.paragraphJust[0]) || 0,
+		marks: marks.length,
+	};
+}
+
+/// テキストでないレイヤ (フォルダ / 画像 …)。名前だけ書き換えられる。
+function plainSheetRow(l) {
+	return {
+		index: l.index,
+		lyid: l.lyid,
+		isText: false,
+		depth: l.depth || 0,
+		kind: l.kind,
+		name: l.name,
+		text: '', font: '', size: 0, color: '', align: 0, marks: 0,
+	};
 }
 
 function setSheetStatus(msg, cls) {
@@ -1861,16 +2098,47 @@ function setSheetStatus(msg, cls) {
 	el.className = 'status' + (cls ? ' ' + cls : '');
 }
 
+//---------------------------------------------------------------------------
+// コピー / 貼り付けの対象カラム
+//
+// 「本文だけ差し替える」「レイヤ名だけ入れ替える」のように、Excel 側の表が
+// 一部の列しか持っていないことが多い。どの列に効かせるかを見出しで選ぶ。
+//---------------------------------------------------------------------------
+function sheetColOn(key) {
+	return !state.sheetCols || state.sheetCols.has(key);
+}
+
+/// 対象カラムの一覧 (表に並んでいる順)
+function sheetCols() {
+	return SHEET_COLS.filter(sheetColOn);
+}
+
+function setSheetCols(keys) {
+	state.sheetCols = new Set(keys);
+	renderSheet();
+}
+
 function renderSheet() {
+	closeFontMenu();          // 開きっぱなしの候補が浮いたままにならないように
 	const table = $('#sheetTable');
 	table.textContent = '';
 	const rows = state.sheet.rows;
 
+	// 見出しのチェックは「コピー / 貼り付けをどの列に効かせるか」。
+	// 表の編集そのものはチェックに関係なくできる。
 	const head = document.createElement('tr');
 	for (const key of SHEET_COLS) {
 		const th = document.createElement('th');
-		th.textContent = tr('sheet.col.' + key);
-		th.className = 'c-' + key;
+		th.className = 'c-' + key + (sheetColOn(key) ? ' on' : '');
+		const lab = document.createElement('label');
+		const cb = document.createElement('input');
+		cb.type = 'checkbox';
+		cb.checked = sheetColOn(key);
+		cb.title = tr('sheet.colTarget');
+		cb.addEventListener('change', () => setSheetCols(
+			SHEET_COLS.filter(k => k === key ? cb.checked : sheetColOn(k))));
+		lab.append(cb, document.createTextNode(tr('sheet.col.' + key)));
+		th.appendChild(lab);
 		head.appendChild(th);
 	}
 	table.appendChild(head);
@@ -1879,51 +2147,123 @@ function renderSheet() {
 		const orig = state.sheet.orig[i];
 		const line = document.createElement('tr');
 		line.dataset.row = String(i);
+		if (!row.isText) line.className = 'plain';
 
-		// レイヤ名 (読み取り専用。書式マークを持つ行には印を出す)
-		const nameCell = document.createElement('td');
-		nameCell.className = 'c-name';
-		if (row.marks) {
-			const w = document.createElement('span');
-			w.className = 'sheet-warn';
-			w.textContent = '⚠';
-			w.title = tr('sheet.marksWarn', row.marks);
-			nameCell.appendChild(w);
-		}
-		nameCell.appendChild(document.createTextNode(row.name));
-		nameCell.title = row.name;
-		line.appendChild(nameCell);
-
-		line.appendChild(sheetCell(i, 'text', row.text, orig.text));
-		line.appendChild(sheetCell(i, 'font', row.font, orig.font));
-		line.appendChild(sheetCell(i, 'size', row.size, orig.size));
-		line.appendChild(sheetCell(i, 'color', row.color, orig.color));
-		line.appendChild(sheetAlignCell(i, row.align, orig.align));
+		line.appendChild(sheetNameCell(i, row, orig));
+		line.appendChild(sheetCell(i, 'text', row.text, orig.text, row));
+		line.appendChild(sheetCell(i, 'font', row.font, orig.font, row));
+		line.appendChild(sheetCell(i, 'size', row.size, orig.size, row));
+		line.appendChild(sheetCell(i, 'color', row.color, orig.color, row));
+		line.appendChild(sheetAlignCell(i, row, orig));
 		table.appendChild(line);
 	});
+
+	// 高さは画面に入ってからでないと測れないので、組み立て終わってから合わせる
+	table.querySelectorAll('td.c-name textarea').forEach(fitRows);
 
 	const changed = changedSheetRows().length;
 	$('#sheetApply').disabled = !changed;
 	$('#sheetApply').textContent = changed ? tr('sheet.applyN', changed) : tr('sheet.apply');
 }
 
+/// textarea の高さを中身に合わせる (折り返したぶんだけ伸ばす)。
+/// 画面に出ていないと測れないので、その場合は既定の高さのままにする。
+function fitRows(el) {
+	el.style.height = 'auto';
+	if (!el.offsetParent && !el.scrollHeight) return;
+	el.style.height = (el.scrollHeight + 2) + 'px';
+}
+
+/// レイヤ名のセル。種別の印と階層を添え、書式マークを持つ行には ⚠ を出す。
+/// フォルダや画像もここだけは書き換えられる (一括リネーム用)。
+function sheetNameCell(i, row, orig) {
+	const td = document.createElement('td');
+	td.className = 'c-name' + (row.name !== orig.name ? ' edited' : '');
+	// 印と入力欄を横に並べるが、td 自体を flex にすると表のセルでなくなり
+	// 列幅 (table-layout: fixed) が効かなくなるので、中に器を一枚挟む
+	const box = document.createElement('div');
+	box.className = 'name-wrap';
+	td.appendChild(box);
+
+	if (row.marks) {
+		const w = document.createElement('span');
+		w.className = 'sheet-warn';
+		w.textContent = '⚠';
+		w.title = tr('sheet.marksWarn', row.marks);
+		box.appendChild(w);
+	}
+	if (state.sheetAll) {
+		const k = document.createElement('span');
+		k.className = 'sheet-kind';
+		k.textContent = KIND_ICON[row.kind] || '·';
+		k.title = row.kind;
+		box.appendChild(k);
+	}
+
+	// 1 行の入力欄だと、`上杉 風太郎,jp/tx_c01.png32` のような長い名前が
+	// 列の幅で切れて読めない。折り返す textarea にして、中身の高さに合わせる。
+	// 改行は名前に入れられないので、Enter も貼り付けの改行も落とす。
+	const el = document.createElement('textarea');
+	el.rows = 1;
+	el.spellcheck = false;
+	el.value = row.name;
+	el.title = row.name;
+	if (state.sheetAll && row.depth) el.style.marginLeft = (row.depth * 10) + 'px';
+	el.dataset.row = String(i);
+	el.dataset.key = 'name';
+	el.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
+	el.addEventListener('input', (e) => {
+		const flat = e.target.value.replace(/[\r\n\t]+/g, ' ');
+		if (flat !== e.target.value) {
+			const at = e.target.selectionStart;
+			e.target.value = flat;
+			e.target.setSelectionRange(at, at);
+		}
+		onSheetInput(e);
+		fitRows(e.target);
+	});
+	el.addEventListener('paste', onSheetPaste);
+	box.appendChild(el);
+	return td;
+}
+
 /// 文字を入れるセル。値が元と違えば色を付ける。
-function sheetCell(i, key, value, orig) {
+/// テキストレイヤでない行は本文も書式も持たないので、空のまま触れなくする。
+function sheetCell(i, key, value, orig, row) {
 	const td = document.createElement('td');
 	td.className = 'c-' + key + (String(value) !== String(orig) ? ' edited' : '');
+	if (row && !row.isText) { td.classList.add('off'); return td; }
 	const el = document.createElement(key === 'text' ? 'textarea' : 'input');
 	if (key === 'size') { el.type = 'number'; el.min = '1'; el.step = '0.5'; }
 	else if (key === 'color') { el.type = 'text'; el.spellcheck = false; }
 	else if (key !== 'text') { el.type = 'text'; el.spellcheck = false; }
 	el.value = (key === 'size' && value) ? (Math.round(value * 10) / 10) : (value ?? '');
 	if (key === 'text') { el.rows = Math.min(4, String(value || '').split('\n').length); }
-	// フォントは PostScript 名がそのまま値。人が見て分かるよう日本語名を添える
-	if (key === 'font' && value) el.title = fontLabel(value);
+	// フォントは PostScript 名がそのまま値。人が見て分かるよう日本語名を添える。
+	// 候補は日本語名からも引けるよう datalist に入れてある。
+	if (key === 'font') {
+		el.setAttribute('list', 'sheetFontList');
+		el.title = value ? fontLabel(value) + '\n' + tr('sheet.fontHint')
+		                 : tr('sheet.fontHint');
+	}
 	el.dataset.row = String(i);
 	el.dataset.key = key;
 	el.addEventListener('input', onSheetInput);
 	el.addEventListener('paste', onSheetPaste);
 	td.appendChild(el);
+	if (key === 'font') {
+		// ▾ で候補を出す。ブラウザ標準の入力候補 (datalist) は、セルに既に
+		// 名前が入っていると絞り込まれて出てこないので、自前で開く。
+		const btn = document.createElement('button');
+		btn.className = 'mini cell-btn';
+		btn.textContent = '▾';
+		btn.title = tr('sheet.fontPick');
+		btn.addEventListener('click', (e) => {
+			e.stopPropagation();
+			openFontMenu(btn, i);
+		});
+		td.appendChild(btn);
+	}
 	if (key === 'color') {
 		const sw = document.createElement('input');
 		sw.type = 'color';
@@ -1938,9 +2278,102 @@ function sheetCell(i, key, value, orig) {
 	return td;
 }
 
-function sheetAlignCell(i, value, orig) {
+//---------------------------------------------------------------------------
+/// フォント欄の ▾ で出す候補。押した位置に合わせて出し、選ぶと閉じる。
+/// 最後の行から、この PC の全フォント (いつものフォント選択) へ行ける。
+function openFontMenu(anchor, row) {
+	closeFontMenu();
+	const menu = document.createElement('div');
+	menu.className = 'cell-menu';
+	menu.id = 'fontMenu';
+
+	const add = (label, sub, fn, cls) => {
+		const d = document.createElement('div');
+		d.className = 'cell-menu-row' + (cls ? ' ' + cls : '');
+		const n = document.createElement('span');
+		n.className = 'cm-name';
+		n.textContent = label;
+		d.appendChild(n);
+		if (sub) {
+			const s = document.createElement('span');
+			s.className = 'cm-sub';
+			s.textContent = sub;
+			d.appendChild(s);
+		}
+		d.addEventListener('click', (e) => { e.stopPropagation(); closeFontMenu(); fn(); });
+		menu.appendChild(d);
+	};
+
+	const cur = state.sheet.rows[row].font;
+	const list = sheetFontCandidates();
+	if (!list.length) add(tr('sheet.fontNone'), '', () => {}, 'dim');
+	for (const ps of list) {
+		const f = state.fontByPs && state.fontByPs.get(ps);
+		const local = (f && (f.localName || f.family)) || '';
+		add(local && local !== ps ? local : ps, ps, () => setSheetFont(row, ps),
+		    ps === cur ? 'on' : '');
+	}
+	add(tr('sheet.fontMore'), '', () => openFontDialog('sheet:' + row), 'more');
+
+	document.body.appendChild(menu);
+	const r = anchor.getBoundingClientRect();
+	menu.style.left = Math.min(r.left, window.innerWidth - menu.offsetWidth - 8) + 'px';
+	// 下に入らなければ上へ出す
+	const below = window.innerHeight - r.bottom;
+	if (below < menu.offsetHeight + 8 && r.top > below)
+		menu.style.top = Math.max(4, r.top - menu.offsetHeight - 2) + 'px';
+	else
+		menu.style.top = (r.bottom + 2) + 'px';
+
+	setTimeout(() => {
+		document.addEventListener('click', closeFontMenu, { once: true });
+	}, 0);
+}
+
+function closeFontMenu() {
+	const m = $('#fontMenu');
+	if (m) m.remove();
+}
+
+/// フォントダイアログで選んだぶんを表の行へ書き戻す
+function setSheetFont(i, name) {
+	const row = state.sheet && state.sheet.rows[i];
+	if (!row) return;
+	row.font = name;
+	renderSheet();
+	setSheetStatus(tr('sheet.fontSet', fontLabel(name)));
+}
+
+/// 入力候補に出すフォント。この PC のぶんを全部並べると数百件になって
+/// 選べないので、**この PSD が使っているもの**と**★ で登録したもの**だけにする。
+/// それ以外は […] のフォント選択から選ぶ (そこで ★ を付ければ次から候補に出る)。
+function sheetFontCandidates() {
+	const out = new Set();
+	for (const t of state.texts) for (const f of (t.fonts || [])) if (f) out.add(f);
+	for (const f of presetFonts()) if (f) out.add(f);
+	return [...out].sort((a, b) => fontLabel(a).localeCompare(fontLabel(b), 'ja'));
+}
+
+/// 候補を datalist へ (値は PostScript 名、見出しは日本語名)
+function renderFontList() {
+	const host = $('#sheetFontList');
+	if (!host) return;
+	host.textContent = '';
+	for (const ps of sheetFontCandidates()) {
+		const o = document.createElement('option');
+		o.value = ps;
+		const f = state.fontByPs && state.fontByPs.get(ps);
+		const local = (f && (f.localName || f.family)) || '';
+		if (local && local !== ps) o.label = local;
+		host.appendChild(o);
+	}
+}
+
+function sheetAlignCell(i, row, orig) {
+	const value = row.align;
 	const td = document.createElement('td');
-	td.className = 'c-align' + (value !== orig ? ' edited' : '');
+	td.className = 'c-align' + (value !== orig.align ? ' edited' : '');
+	if (!row.isText) { td.classList.add('off'); return td; }
 	const sel = document.createElement('select');
 	for (const a of [0, 2, 1]) {
 		const o = document.createElement('option');
@@ -1976,22 +2409,57 @@ function onSheetInput(e) {
 	$('#sheetApply').textContent = changed ? tr('sheet.applyN', changed) : tr('sheet.apply');
 }
 
-/// Excel からの貼り付け。タブ区切り / 改行区切りなら、そのセルを起点に配る。
+/// Excel からの貼り付け。セルの中で受けたぶん。
+/// 貼り付けたセルが起点になり、そこから右へ「対象カラム」だけに流れる。
 function onSheetPaste(e) {
 	const text = e.clipboardData && e.clipboardData.getData('text/plain');
 	if (!text || !/[\t\n]/.test(text.trim())) return;   // 1 セルぶんは通常の貼り付け
-	e.preventDefault();
 
-	const startRow = Number(e.target.dataset.row);
-	const startCol = SHEET_COLS.indexOf(e.target.dataset.key);
-	const lines = text.replace(/\r\n?/g, '\n').replace(/\n$/, '').split('\n');
-	let n = 0;
-	lines.forEach((line, dy) => {
+	const all = sheetCols();
+	if (!all.length) { e.preventDefault(); setSheetStatus(tr('sheet.noCols'), 'error'); return; }
+
+	// 対象から外れている列に貼られたら、起点は無かったものとして
+	// 対象カラムの先頭から埋める (どこにも入らずに終わるほうが困る)
+	const at = all.indexOf(e.target.dataset.key);
+	const note = at < 0 ? tr('sheet.colOff', tr('sheet.col.' + e.target.dataset.key)) : '';
+
+	e.preventDefault();
+	spreadIntoSheet(text, Number(e.target.dataset.row) || 0,
+	                at < 0 ? all : all.slice(at), note);
+}
+
+/// 表のどこにもカーソルが無いまま貼られたぶん。
+/// 起点が無いので、上の行から「対象カラム」に順に埋める。
+function onSheetPasteAnywhere(e) {
+	if ($('#sheetDialog').hidden || !state.sheet) return;
+	// 一覧編集より手前に別の画面が出ているときは、そちらの貼り付け
+	const open = [...document.querySelectorAll('.modal:not([hidden])')];
+	if (open[open.length - 1] !== $('#sheetDialog')) return;
+	// セルの中で受けたものは onSheetPaste の担当。
+	// ほかの入力欄 (絞り込みなど) に貼っているときも横取りしない。
+	const t = e.target;
+	if (t && t.dataset && t.dataset.key) return;
+	if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+	const text = e.clipboardData && e.clipboardData.getData('text/plain');
+	if (!text || !text.trim()) return;
+
+	const cols = sheetCols();
+	if (!cols.length) { setSheetStatus(tr('sheet.noCols'), 'error'); return; }
+	e.preventDefault();
+	spreadIntoSheet(text, 0, cols, '');
+}
+
+/// 貼り付けた中身を startRow から下へ、cols の順に配る。
+function spreadIntoSheet(text, startRow, cols, note) {
+	let n = 0, skipped = 0;
+	parseTsv(text).forEach((line, dy) => {
 		const row = state.sheet.rows[startRow + dy];
 		if (!row) return;
-		line.split('\t').forEach((cell, dx) => {
-			const key = SHEET_COLS[startCol + dx];
-			if (!key || key === 'name') return;          // 名前の列は書き換えない
+		line.forEach((cell, dx) => {
+			const key = cols[dx];
+			if (!key) return;
+			// テキストレイヤでない行が持てるのはレイヤ名だけ
+			if (!row.isText && key !== 'name') { skipped++; return; }
 			if (key === 'size') row.size = parseFloat(cell) || row.size;
 			else if (key === 'align') row.align = alignFromText(cell, row.align);
 			else if (key === 'color') row.color = tg.normColor(cell);
@@ -2000,7 +2468,67 @@ function onSheetPaste(e) {
 		});
 	});
 	renderSheet();
-	setSheetStatus(tr('sheet.pasted', n));
+	const done = skipped ? tr('sheet.pastedSkip', n, skipped) : tr('sheet.pasted', n);
+	setSheetStatus(note ? note + ' / ' + done : done);
+}
+
+/// 表を対象カラムだけ TSV にしてクリップボードへ。Excel へそのまま貼れる。
+async function copySheet() {
+	const cols = sheetCols();
+	if (!cols.length) { setSheetStatus(tr('sheet.noCols'), 'error'); return; }
+	const tsv = state.sheet.rows
+		.map(r => cols.map(k => tsvCell(sheetText(r, k))).join('\t')).join('\n');
+	try {
+		await navigator.clipboard.writeText(tsv);
+	} catch (err) {
+		// クリップボードを触らせてもらえない場合の逃げ道
+		const ta = document.createElement('textarea');
+		ta.value = tsv;
+		document.body.appendChild(ta);
+		ta.select();
+		document.execCommand('copy');
+		ta.remove();
+	}
+	setSheetStatus(tr('sheet.copied', state.sheet.rows.length, cols.length), 'ok');
+}
+
+/// 表に出ている見た目のままの文字列 (行揃えは名前で出す)
+function sheetText(row, key) {
+	if (!row.isText && key !== 'name') return '';
+	if (key === 'align') return tr('fmt.align.' + row.align);
+	if (key === 'size')  return row.size ? String(Math.round(row.size * 10) / 10) : '';
+	return row[key] === null || row[key] === undefined ? '' : String(row[key]);
+}
+
+/// 改行やタブを含むセルは Excel と同じ流儀で " で囲む
+function tsvCell(s) {
+	return /[\t\n"]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+/// TSV を行 × セルにほどく。" で囲まれたセルの中の改行とタブは中身として扱う。
+function parseTsv(text) {
+	const src = text.replace(/\r\n?/g, '\n').replace(/\n$/, '');
+	const rows = [];
+	let row = [], cell = '', quoted = false;
+	for (let i = 0; i < src.length; i++) {
+		const c = src[i];
+		if (quoted) {
+			if (c !== '"') { cell += c; continue; }
+			if (src[i + 1] === '"') { cell += '"'; i++; continue; }   // "" は " 一つ
+			quoted = false;
+		} else if (c === '"' && cell === '') {
+			quoted = true;
+		} else if (c === '\t') {
+			row.push(cell); cell = '';
+		} else if (c === '\n') {
+			row.push(cell); cell = ''; rows.push(row); row = [];
+		} else {
+			cell += c;
+		}
+	}
+	row.push(cell);
+	rows.push(row);
+	return rows;
 }
 
 function alignFromText(s, def) {
@@ -2014,7 +2542,7 @@ function changedSheetRows() {
 	if (!state.sheet) return [];
 	return state.sheet.rows.filter((r, i) => {
 		const o = state.sheet.orig[i];
-		return SHEET_COLS.some(k => k !== 'name' && String(r[k]) !== String(o[k]));
+		return SHEET_COLS.some(k => String(r[k]) !== String(o[k]));
 	});
 }
 
@@ -2022,11 +2550,31 @@ function changedSheetRows() {
 /// 表の変更を文書へ流す。
 async function applySheet() {
 	const rows = state.sheet.rows;
-	let done = 0, lostMarks = 0, failed = 0;
+	let done = 0, lostMarks = 0, failed = 0, renamed = 0;
 	setSheetStatus(tr('multi.working'));
+
+	// 名前は種別を問わず変えられるので、本文や書式より先にまとめて送る。
+	// 索引の作り直しが 1 回で済み、この後の index も新しいものになる。
+	const renames = rows.map((r, i) => ({ row: r, orig: state.sheet.orig[i] }))
+	                    .filter(x => x.row.name !== x.orig.name);
+	if (renames.length) {
+		try {
+			const res = await app.post('/api/psd/names', {
+				names: renames.map(x => x.row.lyid
+					? { lyid: x.row.lyid, name: x.row.name }
+					: { index: x.row.index, name: x.row.name }),
+			});
+			renamed = res.renamed || 0;
+			failed += (res.errors || []).length;
+			applyDoc(res, { keepVisibility: true });
+		} catch (e) {
+			failed += renames.length;
+		}
+	}
 
 	for (let i = 0; i < rows.length; i++) {
 		const row = rows[i], orig = state.sheet.orig[i];
+		if (!row.isText) continue;
 		const t = state.texts.find(x => x.lyid === row.lyid) || textOf(row.index);
 		if (!t) { failed++; continue; }
 
@@ -2075,10 +2623,16 @@ async function applySheet() {
 	renderAll();
 	scheduleRedraw();
 	loadSheet();          // 反映後の姿を読み直す (元の値も更新される)
-	setSheetStatus(
-		failed ? tr('sheet.doneFailed', done, failed)
-		       : (lostMarks ? tr('sheet.doneLost', done, lostMarks) : tr('sheet.done', done)),
-		failed ? 'error' : 'ok');
+	// 名前だけ変えたときは行数の話にしない (本文を触っていないので 0 行になる)
+	let msg;
+	if (!failed && !done && renamed) msg = tr('sheet.doneRenamedOnly', renamed);
+	else {
+		msg = failed ? tr('sheet.doneFailed', done, failed)
+		             : (lostMarks ? tr('sheet.doneLost', done, lostMarks)
+		                          : tr('sheet.done', done));
+		if (renamed) msg += tr('sheet.doneRenamed', renamed);
+	}
+	setSheetStatus(msg, failed ? 'error' : 'ok');
 }
 
 /// 先頭マークを目的の形にするための差分 (消す指定は undefined)
@@ -2419,6 +2973,33 @@ async function main() {
 	$('#sheetBtn').addEventListener('click', openSheet);
 	$('#sheetApply').addEventListener('click', applySheet);
 	$('#sheetReload').addEventListener('click', () => { loadSheet(); setSheetStatus(tr('sheet.reloaded')); });
+	$('#sheetAll').addEventListener('change', (e) => {
+		state.sheetAll = e.target.checked;
+		loadSheet();      // 出す行が変わるので入力中の値は捨てる
+	});
+	$('#sheetCopy').addEventListener('click', copySheet);
+	// 表のどこも触っていない状態の Ctrl+V も受ける (対象カラムに順に埋める)
+	document.addEventListener('paste', onSheetPasteAnywhere);
+
+	// --- 一括リネーム ---
+	$('#renameBulkBtn').addEventListener('click', openRenameDialog);
+	$('#rnApply').addEventListener('click', applyRename);
+	$('#rnReset').addEventListener('click', () => { resetRenameRules(); renderRenamePreview(); });
+	for (const id of ['#rnTarget', '#rnFind', '#rnRepl', '#rnRegex', '#rnCase',
+	                  '#rnPrefix', '#rnSuffix', '#rnSeq', '#rnSeqStart', '#rnSeqPad',
+	                  '#rnSeqAt', '#rnSeqSep']) {
+		$(id).addEventListener('input', renderRenamePreview);
+		$(id).addEventListener('change', renderRenamePreview);
+	}
+	const COL_SETS = {
+		text:    ['text'],
+		style:   ['font', 'size', 'color', 'align'],
+		name:    ['name'],
+		notname: SHEET_COLS.filter(k => k !== 'name'),
+		all:     SHEET_COLS,
+	};
+	document.querySelectorAll('.sheet-cols [data-cols]').forEach(b =>
+		b.addEventListener('click', () => setSheetCols(COL_SETS[b.dataset.cols])));
 	$('#exportBtn').addEventListener('click', openExportDialog);
 	$('#expGo').addEventListener('click', exportCsvToFile);
 	$('#expDownload').addEventListener('click', () => {
@@ -2626,6 +3207,7 @@ async function main() {
 		state.settings.fontPreset = e.target.value;
 		app.post('/api/app/settings', { fontPreset: e.target.value }).catch(() => {});
 		renderSysFonts();
+		renderFontList();
 	});
 	$('#fontPresetNew').addEventListener('click', () => {
 		const name = prompt(tr('dlg.fontPresetAsk'), '');

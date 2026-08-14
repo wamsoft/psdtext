@@ -337,6 +337,13 @@ int Document::findByLyid(int lyid) const
 	return -1;
 }
 
+int Document::findLayerByLyid(int lyid) const
+{
+	if (lyid == 0) return -1;
+	for (const auto& l : layers_) if (l.lyid == lyid) return l.index;
+	return -1;
+}
+
 int Document::findByPath(const std::string& path) const
 {
 	if (path.empty()) return -1;
@@ -550,6 +557,39 @@ bool Document::setName(int index, const std::string& utf8, std::string& err)
 	rebuildIndex();
 	inheritTextState(before, false);
 	return true;
+}
+
+int Document::setNames(const std::vector<std::pair<int, std::string>>& names,
+                       std::vector<std::pair<int, std::string>>* errOut)
+{
+	auto fail = [&](int index, const char* why) {
+		if (errOut) errOut->push_back(std::make_pair(index, std::string(why)));
+	};
+	if (!isOpen()) {
+		for (const auto& n : names) fail(n.first, "no document is open");
+		return 0;
+	}
+
+	// 索引の作り直しは高くつくので、全部書き換えてから最後に一度だけ行う。
+	int done = 0;
+	for (const auto& n : names) {
+		if (n.first < 0 || n.first >= (int)layers_.size()) {
+			fail(n.first, "layer index out of range");
+			continue;
+		}
+		if (n.second.empty()) { fail(n.first, "layer name must not be empty"); continue; }
+		if (!psd_->setLayerName(n.first, n.second.c_str())) {
+			fail(n.first, "could not rename layer");
+			continue;
+		}
+		++done;
+	}
+	if (done) {
+		std::vector<TextRow> before = texts_;
+		rebuildIndex();
+		inheritTextState(before, false);
+	}
+	return done;
 }
 
 //---------------------------------------------------------------------------

@@ -14,6 +14,8 @@
 
 #include <cstdlib>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 using namespace appserve;
 
@@ -123,6 +125,7 @@ private:
 		if (op == "text"    && req.method == "POST") return opSetText(req);
 		if (op == "revert"  && req.method == "POST") return opRevert(req);
 		if (op == "name"    && req.method == "POST") return opSetName(req);
+		if (op == "names"   && req.method == "POST") return opSetNames(req);
 		if (op == "align"   && req.method == "POST") return opSetAlign(req);
 		if (op == "duplicate" && req.method == "POST") return opDuplicate(req);
 		if (op == "move"      && req.method == "POST") return opMove(req);
@@ -262,6 +265,54 @@ private:
 			return Response::error(400, err);
 		notifyChanged();
 		Json out = doc_.info();
+		out.set("tree",  doc_.tree());
+		out.set("texts", doc_.texts());
+		return Response::json(out);
+	}
+
+	/// レイヤ名をまとめて変える。%[ names: [ %[index|lyid, name], ... ] ]
+	///
+	/// 1 件ずつ /api/psd/name を叩くと、そのたびに索引の作り直しとツリー全体の
+	/// 送り返しが起きる。一括リネームは数十〜数百件になるのでここでまとめる。
+	Response opSetNames(const Request& req) {
+		Response deny = requireOpen();
+		if (deny.status != 200) return deny;
+		const Json& j = req.json();
+		if (!j.isObj() || !j["names"].isArr())
+			return Response::error(400, "names[] is required");
+
+		const Json& list = j["names"];
+		std::vector<std::pair<int, std::string>> names;
+		Json errors = Json::array();
+		for (size_t i = 0; i < list.size(); ++i) {
+			const Json& e = list[i];
+			// lyid は名前を変えても動かないので、指定があればそちらを優先する
+			int index = e.has("lyid") ? doc_.findLayerByLyid((int)e["lyid"].asInt(0))
+			                          : (int)e["index"].asInt(-1);
+			if (index < 0) {
+				Json o = Json::object();
+				o.set("index",   Json((long long)e["index"].asInt(-1)));
+				o.set("lyid",    Json((long long)e["lyid"].asInt(0)));
+				o.set("message", Json(std::string("layer not found")));
+				errors.push(std::move(o));
+				continue;
+			}
+			names.push_back(std::make_pair(index, e["name"].asStr()));
+		}
+
+		std::vector<std::pair<int, std::string>> failed;
+		int done = doc_.setNames(names, &failed);
+		for (const auto& f : failed) {
+			Json o = Json::object();
+			o.set("index",   Json((long long)f.first));
+			o.set("message", Json(f.second));
+			errors.push(std::move(o));
+		}
+		if (done) notifyChanged();
+
+		Json out = doc_.info();
+		out.set("renamed", Json((long long)done));
+		out.set("errors",  std::move(errors));
 		out.set("tree",  doc_.tree());
 		out.set("texts", doc_.texts());
 		return Response::json(out);

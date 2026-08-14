@@ -46,6 +46,10 @@ html, body {
 	font: 13px/1.45 "Segoe UI", "Yu Gothic UI", system-ui, sans-serif;
 	overflow: hidden;
 }
+/* 上部バーの高さは中身と言語で変わる (狭い窓では折り返す) ので、
+   決め打ちにせず「残り全部」を本体に渡す */
+body { display: flex; flex-direction: column; }
+#topbar { flex: none; }
 
 button, input, textarea, select {
 	font: inherit;
@@ -97,11 +101,18 @@ code { background: var(--bg); padding: 1px 4px; border-radius: 3px; }
 /*--- レイアウト -------------------------------------------------------*/
 #layout {
 	display: grid;
-	grid-template-columns: 280px 1fr 400px;
-	height: calc(100% - 39px);
+	/* 左は英語表示でもボタンが収まる幅 (狭いと横スクロールが出る) */
+	grid-template-columns: 320px 1fr 400px;
+	flex: 1 1 auto;
+	min-height: 0;            /* grid の中身が伸びても窓からはみ出さない */
 }
 .pane { overflow: auto; border-right: 1px solid var(--border); background: var(--bg-pane); }
 #editPane { border-right: none; display: flex; flex-direction: column; }
+/* 左ペインは「見出し / 絞り込み / ツリー (伸縮) / 操作ボタン」の縦並び。
+   ツリーだけをスクロールさせる (下のボタンが窓の外へ出てしまわないように) */
+#treePane { display: flex; flex-direction: column; overflow: hidden; }
+#treePane .pane-title, #treePane #listFilter, #treePane .pane-foot { flex: none; }
+#treePane #tree { flex: 1 1 auto; overflow: auto; }
 
 .pane-title {
 	position: sticky;
@@ -266,6 +277,8 @@ code { background: var(--bg); padding: 1px 4px; border-radius: 3px; }
 	justify-content: center;
 	z-index: 10;
 }
+/* フォント選びは一覧編集などの画面から呼ばれるので、そのぶん手前に置く */
+#fontDialog { z-index: 12; }
 .modal-box {
 	width: min(720px, 92vw);
 	max-height: 84vh;
@@ -446,12 +459,13 @@ button.mini.on { background: var(--accent); border-color: var(--accent); color: 
 	position: sticky;
 	bottom: 0;
 	display: flex;
+	flex-wrap: wrap;          /* 言語で文字数が変わるので、収まらなければ折り返す */
 	gap: 6px;
 	padding: 6px 8px;
 	background: var(--bg-pane);
 	border-top: 1px solid var(--border);
 }
-.pane-foot button { flex: 1; font-size: 12px; }
+.pane-foot button { flex: 1 1 auto; min-width: 64px; font-size: 12px; }
 
 /*--- 右ペインの書式バー ----------------------------------------------*/
 .style-bar {
@@ -479,8 +493,8 @@ button.mini.on { background: var(--accent); border-color: var(--accent); color: 
 /* 本文の列を一番広く取る (ここを打ち替えるのが仕事なので) */
 #sheetDialog .modal-box { width: min(1400px, 96vw); }
 table.sheet { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
-table.sheet .c-name  { width: 20%; }
-table.sheet .c-text  { width: 38%; }
+table.sheet .c-name  { width: 24%; }
+table.sheet .c-text  { width: 34%; }
 table.sheet .c-font  { width: 18%; }
 table.sheet .c-size  { width: 7%; }
 table.sheet .c-color { width: 9%; }
@@ -519,8 +533,83 @@ table.sheet input:focus, table.sheet textarea:focus, table.sheet select:focus {
 	outline: none;
 }
 table.sheet textarea { resize: vertical; white-space: pre-wrap; line-height: 1.5; }
-.c-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-dim); }
+/*--- 一括リネーム ----------------------------------------------------*/
+#renameDialog .modal-box { width: min(1100px, 94vw); }
+.rn-rules { margin: 6px 0; padding: 6px 0; border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border); }
+.rn-rules .row { gap: 10px; flex-wrap: wrap; align-items: center; margin: 3px 0; }
+.rn-rules input[type="text"] { width: 150px; }
+.rn-rules .num { width: 60px; }
+/* 名前は折り返して全部見せる。中身 (本文の頭) だけは 1 行に省略する */
+table.rn td { max-width: 0; overflow-wrap: anywhere; vertical-align: top; }
+table.rn .c-rn-body { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+table.rn .c-rn-kind { width: 24px; text-align: center; color: var(--accent); }
+table.rn .c-rn-old  { width: 33%; color: var(--fg-dim); }
+table.rn .c-rn-new  { width: 33%; }
+table.rn .c-rn-body { width: 30%; color: var(--fg-dim); font-size: 11px; }
+table.rn tr.hit .c-rn-new { color: var(--ok); }
+table.rn tr.bad .c-rn-new { color: var(--error); }
+
+/* 見出しのチェック = コピー / 貼り付けの対象。外した列は薄く見せる */
+#sheetTable th label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+/* セルの入力欄は width:100% だが、見出しのチェックにそれが効くと
+   列名と重なってしまうので、ここだけ素の大きさに戻す */
+#sheetTable th input[type="checkbox"] { flex: none; width: auto; margin: 0; }
+#sheetTable th:not(.on) { opacity: .55; }
+#sheetTable th.on { color: var(--fg); }
+.sheet-cols { gap: 6px; flex-wrap: wrap; }
+
+/* レイヤ名の列。⚠ と種別の印を左に置き、残りを入力欄にする。
+   長い名前 (「名前,パス/ファイル名」のような運用) が列幅で切れないよう折り返す */
+table.sheet td.c-name .name-wrap { display: flex; align-items: flex-start; gap: 2px; }
+table.sheet td.c-name textarea {
+	flex: 1 1 auto;
+	min-width: 0;
+	resize: none;
+	overflow: hidden;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	line-height: 1.4;
+}
+.sheet-kind { flex: none; padding: 2px 0; color: var(--accent); }
+/* テキストレイヤでない行の、書き換えられないセル (名前だけが編集できる) */
+table.sheet td.off { background: rgba(128, 128, 128, .07); }
 .c-color { white-space: nowrap; }
+/* フォント列 — 入力 + 一覧を開く […]。
+   幅は table.sheet input の 100% より後に効かせる必要があるので、
+   同じだけセレクタを重ねておく (でないと […] が隣の列へはみ出す) */
+.c-font { white-space: nowrap; }
+table.sheet .c-font input { width: calc(100% - 26px); display: inline-block; }
+table.sheet .cell-btn { width: 22px; padding: 0; display: inline-block; vertical-align: middle; }
+
+/* セルの ▾ で出す候補。モーダルより手前に出す必要があるので body 直下に置く */
+.cell-menu {
+	position: fixed;
+	z-index: 30;
+	min-width: 240px;
+	max-width: 480px;
+	max-height: 60vh;
+	overflow: auto;
+	padding: 4px 0;
+	background: var(--bg-pane);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	box-shadow: 0 6px 24px #0007;
+	font-size: 12px;
+}
+.cell-menu-row {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	padding: 3px 10px;
+	cursor: pointer;
+	white-space: nowrap;
+}
+.cell-menu-row:hover { background: var(--bg-hover); }
+.cell-menu-row.on { color: var(--accent); }
+.cell-menu-row.dim { color: var(--fg-dim); cursor: default; }
+.cell-menu-row.more { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 6px; }
+.cell-menu .cm-sub { margin-left: auto; color: var(--fg-dim); font-size: 11px; }
 .c-color input[type="text"] { width: calc(100% - 30px); display: inline-block; }
 .c-color input.swatch { width: 24px; height: 20px; display: inline-block; vertical-align: middle; padding: 0; }
 .sheet-warn { color: var(--warn); margin-right: 4px; cursor: help; }

@@ -50,6 +50,7 @@
 			<button id="moveUpBtn" class="icon" disabled data-i18n-title="tree.up.title">▲</button>
 			<button id="moveDownBtn" class="icon" disabled data-i18n-title="tree.down.title">▼</button>
 			<button id="renameBtn" disabled data-i18n="tree.rename" data-i18n-title="tree.rename.title">Rename</button>
+			<button id="renameBulkBtn" data-i18n="tree.renameBulk" data-i18n-title="tree.renameBulk.title">Rename…</button>
 			<button id="dupBtn" disabled data-i18n="tree.dup" data-i18n-title="tree.dup.title">Duplicate</button>
 		</div>
 	</nav>
@@ -344,13 +345,97 @@
 		</div>
 		<div class="modal-body">
 			<p class="hint" data-i18n="sheet.hint"></p>
+			<div class="row" style="align-items:center">
+				<label><input type="checkbox" id="sheetAll">
+					<span data-i18n="sheet.allLayers">Show every layer</span></label>
+				<span class="hint" data-i18n="sheet.allLayersHint"></span>
+			</div>
+			<div class="row sheet-cols" style="align-items:center">
+				<span class="badge-target" data-i18n="sheet.cols">Copy / paste columns</span>
+				<button class="mini" data-cols="text" data-i18n="sheet.colsText">Body only</button>
+				<button class="mini" data-cols="style" data-i18n="sheet.colsStyle">Formatting only</button>
+				<button class="mini" data-cols="name" data-i18n="sheet.colsName">Layer name only</button>
+				<button class="mini" data-cols="notname" data-i18n="sheet.colsNotName">Everything but the name</button>
+				<button class="mini" data-cols="all" data-i18n="sheet.colsAll">All</button>
+				<span class="spacer"></span>
+				<button id="sheetCopy" class="mini" data-i18n="sheet.copy" data-i18n-title="sheet.copy.title">Copy table</button>
+			</div>
 			<div class="sheet-wrap">
 				<table id="sheetTable" class="sheet"></table>
 			</div>
+			<datalist id="sheetFontList"></datalist>
 			<div class="row" style="margin-top:10px; align-items:center">
 				<button id="sheetApply" class="primary" data-i18n="sheet.apply">Apply changes</button>
 				<button id="sheetReload" data-i18n="sheet.reload">Reload</button>
 				<span id="sheetStatus" class="status"></span>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- 一括リネーム -->
+<div id="renameDialog" class="modal" hidden>
+	<div class="modal-box wide">
+		<div class="modal-head">
+			<span data-i18n="rn.title">Rename layers</span>
+			<button class="icon close" data-close>×</button>
+		</div>
+		<div class="modal-body">
+			<p class="hint" data-i18n="rn.hint"></p>
+			<div class="row" style="align-items:center">
+				<label><span data-i18n="rn.target">Layers</span>
+					<select id="rnTarget">
+						<option value="sel" data-i18n="rn.target.sel">Selected</option>
+						<option value="text" data-i18n="rn.target.text">Text layers</option>
+						<option value="all" data-i18n="rn.target.all">Every layer</option>
+					</select>
+				</label>
+				<span id="rnCount" class="hint"></span>
+			</div>
+
+			<div class="rn-rules">
+				<div class="row">
+					<label><span data-i18n="rn.find">Find</span>
+						<input type="text" id="rnFind" spellcheck="false"></label>
+					<label><span data-i18n="rn.repl">Replace with</span>
+						<input type="text" id="rnRepl" spellcheck="false"></label>
+					<label><input type="checkbox" id="rnRegex">
+						<span data-i18n="rn.regex">Regular expression</span></label>
+					<label><input type="checkbox" id="rnCase">
+						<span data-i18n="rn.case">Match case</span></label>
+				</div>
+				<div class="row">
+					<label><span data-i18n="rn.prefix">Add to the front</span>
+						<input type="text" id="rnPrefix" spellcheck="false"></label>
+					<label><span data-i18n="rn.suffix">Add to the end</span>
+						<input type="text" id="rnSuffix" spellcheck="false"></label>
+				</div>
+				<div class="row">
+					<label><input type="checkbox" id="rnSeq">
+						<span data-i18n="rn.seq">Number them</span></label>
+					<label><span data-i18n="rn.seqStart">From</span>
+						<input type="number" id="rnSeqStart" class="num" value="1" min="0" step="1"></label>
+					<label><span data-i18n="rn.seqPad">Digits</span>
+						<input type="number" id="rnSeqPad" class="num" value="2" min="1" max="8" step="1"></label>
+					<label><span data-i18n="rn.seqAt">Put it</span>
+						<select id="rnSeqAt">
+							<option value="suffix" data-i18n="rn.seqAt.suffix">at the end</option>
+							<option value="prefix" data-i18n="rn.seqAt.prefix">at the front</option>
+						</select></label>
+					<label><span data-i18n="rn.seqSep">Separator</span>
+						<input type="text" id="rnSeqSep" value="_" spellcheck="false"></label>
+					<span id="rnSeqNote" class="hint"></span>
+				</div>
+				<p class="hint" data-i18n="rn.vars"></p>
+			</div>
+
+			<div class="sheet-wrap">
+				<table id="rnTable" class="sheet rn"></table>
+			</div>
+			<div class="row" style="margin-top:10px; align-items:center">
+				<button id="rnApply" class="primary" data-i18n="rn.apply">Rename</button>
+				<button id="rnReset" data-i18n="rn.reset">Clear the rules</button>
+				<span id="rnStatus" class="status"></span>
 			</div>
 		</div>
 	</div>
