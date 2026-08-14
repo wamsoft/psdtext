@@ -176,6 +176,11 @@ function renderTree() {
 		const name = document.createElement('span');
 		name.className = 'tree-name';
 		name.textContent = l.name;
+		name.title = 'ダブルクリックで名前を変更';
+		name.addEventListener('dblclick', (e) => {
+			e.stopPropagation();
+			beginRename(l.index, name);
+		});
 
 		row.append(twist, eye, icon, name);
 		row.title = l.path;
@@ -184,6 +189,7 @@ function renderTree() {
 	}
 
 	const sel = state.selected === null ? null : nodeOf(state.selected);
+	$('#renameBtn').disabled = !sel;                 // 名前はどのレイヤでも変えられる
 	$('#dupBtn').disabled = !(sel && sel.text);
 	$('#addBtn').disabled = !(sel && sel.text);
 }
@@ -471,6 +477,61 @@ async function setAlign(align) {
 	}
 }
 
+/// ツリー上でレイヤ名をその場編集する。Enter で確定、Escape で取り消し。
+function beginRename(index, span) {
+	if (span.dataset.editing) return;
+	const node = nodeOf(index);
+	if (!node) return;
+
+	span.dataset.editing = '1';
+	const input = document.createElement('input');
+	input.className = 'rename-input';
+	input.value = node.name;
+	span.textContent = '';
+	span.appendChild(input);
+	input.focus();
+	input.select();
+
+	let done = false;
+	const finish = async (commit) => {
+		if (done) return;
+		done = true;
+		const value = input.value.trim();
+		delete span.dataset.editing;
+		if (!commit || !value || value === node.name) {
+			renderTree();          // 元の表示へ戻す
+			return;
+		}
+		try {
+			const r = await app.post('/api/psd/name', { index, name: value });
+			applyDoc(r, { keepVisibility: true });
+			toast(`レイヤ名を「${value}」に変更しました`);
+		} catch (e) {
+			toast(e.message, true);
+			renderTree();
+		}
+	};
+
+	input.addEventListener('click', (e) => e.stopPropagation());
+	input.addEventListener('keydown', (e) => {
+		e.stopPropagation();
+		if (e.key === 'Enter')  { e.preventDefault(); finish(true); }
+		if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+	});
+	input.addEventListener('blur', () => finish(true));
+}
+
+/// 選択中のレイヤの名前編集を開始する (ボタン / F2 から)
+function renameSelected() {
+	if (state.selected === null) return;
+	const row = document.querySelector(`.tree-row[data-index="${state.selected}"]`);
+	const span = row && row.querySelector('.tree-name');
+	if (span) {
+		row.scrollIntoView({ block: 'nearest' });
+		beginRename(state.selected, span);
+	}
+}
+
 async function duplicateLayer(asNew) {
 	const t = state.selected === null ? null : textOf(state.selected);
 	if (!t) return;
@@ -710,6 +771,12 @@ function setupReplBridge() {
 	app.command('apply',  () => applyText());
 	app.command('save',   () => save());
 	app.command('align',  (a) => setAlign(typeof a === 'number' ? a : a.align));
+	app.command('rename', async (a) => {
+		const index = (a.index !== undefined) ? a.index : state.selected;
+		const r = await app.post('/api/psd/name', { index, name: a.name ?? String(a) });
+		applyDoc(r, { keepVisibility: true });
+		return nodeOf(index) ? nodeOf(index).name : null;
+	});
 	app.command('filter', (a) => { state.filter = String(a ?? ''); $('#filter').value = state.filter; renderTree(); });
 
 	app.exposeState(() => ({
@@ -820,6 +887,7 @@ async function main() {
 		renderTree();
 		scheduleRedraw();
 	});
+	$('#renameBtn').addEventListener('click', renameSelected);
 	$('#dupBtn').addEventListener('click', () => duplicateLayer(false));
 	$('#addBtn').addEventListener('click', () => duplicateLayer(true));
 
@@ -876,6 +944,10 @@ async function main() {
 
 	document.addEventListener('keydown', e => {
 		if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); $('#saveBtn').click(); }
+		if (e.key === 'F2' && document.activeElement !== $('#editText')) {
+			e.preventDefault();
+			renameSelected();
+		}
 		if (e.key === 'Escape') document.querySelectorAll('.modal:not([hidden])')
 			.forEach(m => { m.hidden = true; });
 	});

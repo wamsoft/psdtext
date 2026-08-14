@@ -405,3 +405,14 @@ button.mini.on { background: var(--accent); border-color: var(--accent); color: 
 
 .modal-box.narrow { width: min(480px, 92vw); }
 #sysFontList { height: 260px; }
+
+/*--- ツリー上での名前編集 --------------------------------------------*/
+.rename-input {
+	width: 100%;
+	padding: 0 4px;
+	font: inherit;
+	background: var(--bg);
+	border: 1px solid var(--accent);
+	border-radius: 3px;
+}
+.tree-name { flex: 1; min-width: 0; }
