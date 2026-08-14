@@ -2,6 +2,8 @@
 
 *[English version](README.md)*
 
+*最近の更新: [CHANGELOG_ja.md](CHANGELOG_ja.md)*
+
 PSD のテキストレイヤを一覧して書き換えるローカルツール。
 Photoshop を開かずに、翻訳・校正・表記ゆれ修正といった**テキストの再編集**を行う。
 

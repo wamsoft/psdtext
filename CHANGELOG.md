@@ -1,0 +1,89 @@
+# Changelog
+
+What changed in psdtext, written from **the point of view of someone using it**.
+On release, rename the "Unreleased" heading to the version number and start a new
+"Unreleased" above it. The reasoning behind a change belongs in its commit message.
+
+日本語: [CHANGELOG_ja.md](CHANGELOG_ja.md)
+
+---
+
+## Unreleased
+
+### CSV
+
+- **Fixed: importing a CSV never applied anything.** Building the list of
+  differences threw, which left the "Apply" button disabled for good
+- **Shift_JIS CSVs saved by Excel now import as-is** instead of coming in as
+  mojibake. The detected encoding is shown in the dialog
+- **The export folder is remembered**, and the import dialog opens there too
+- **Export only the layers you selected** (it used to be all-or-nothing)
+- **The initial formatting now lives in its own columns.** With font / size /
+  colour / alignment packed into the same cell as the text, Excel could not
+  paste a column at a time. Formatting that changes mid-text stays in `tags`
+- The import report says **why** a row was not applied (no such layer, nothing
+  changed, and so on)
+
+### Working on many layers at once
+
+- **Select several layers** (Ctrl-click / Shift-click)
+- **Apply a font, size, colour or alignment to all of them at once**, and
+  **copy formatting from one layer and paste it onto the rest**
+- **Duplicate the whole selection**, optionally prefixing the layer names — one
+  step to lay the groundwork for another language. Masks are duplicated along
+  with the layer (CI checks this on every run)
+- **Sheet editing**: put the selected layers' text and initial formatting in a
+  table and edit them there. Paste from Excel to fill it in, no CSV round trip
+
+### Fonts
+
+- **Fonts are listed under the name you know them by** (Japanese fonts show
+  their Japanese names), with the PostScript name the PSD stores alongside.
+  Either name is searchable
+- **Presets** (`★`): fonts you use often come up first, and presets are named,
+  so you can keep one per project
+
+### Fewer steps
+
+- **The last folder you opened is remembered**
+- **Filter the layer list** (text layers only / by name) — separate from the
+  visibility toggles, this narrows the list itself
+- **Ctrl+Shift+Enter applies and moves to the next text layer**, with the text
+  selected on arrival so you can type straight over it. Ctrl+&uarr; / Ctrl+&darr; move
+  between layers
+- **Drop a PSD or a CSV onto the window** to open it
+- **The window size and position are remembered**
+- Fixed: a dialog closed when a drag that started inside it ended outside,
+  which made pasting a path fiddly
+
+---
+
+## 0.1.1 — 2026-08-14
+
+- **Reworked around formatting marks.** The text no longer shows tags; a mark
+  (◆) sits where the formatting changes. The mark your caret is in is the one
+  you edit, and it can be deleted
+- **Colour can now be set**
+- **The formatting a layer was loaded with (the base) is edited separately from
+  the changes after it.** Most of the time only the base needs changing, so the
+  base is a plain set of pickers while marks and ranges go through a button
+- **Formatting a selected range no longer inserts a closing tag**; it puts back
+  the formatting that follows the range instead
+- **The position fields moved directly under the position display**, so the
+  values before the edit stay visible above them
+- **Fixed: formatting leaked into other layers and could not be reverted.** The
+  base is now fixed at load time and run styles are written back as absolute values
+- **When psdtext exits, its browser window closes itself**
+- The formatting-mark logic has unit tests that run in CI
+
+## 0.1.0 — 2026-08-14
+
+First release.
+
+- List the text layers in a PSD, rewrite them and save the file back
+- Composite preview, per-group visibility toggles, provisional text rendering
+- Tag notation for formatted text, alignment, duplicating / moving / renaming layers
+- Editing text position and the text box (numbers / drag / arrow keys)
+- CSV export and import
+- Built-in help, English / Japanese UI
+- Windows and Linux packages built by GitHub Actions

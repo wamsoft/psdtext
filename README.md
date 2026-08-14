@@ -2,6 +2,8 @@
 
 *[日本語版はこちら / Japanese version](README_ja.md)*
 
+*What changed recently: [CHANGELOG.md](CHANGELOG.md)*
+
 A local tool for listing and rewriting the text layers of a PSD.
 It exists so you can do the **text re-editing** — translation, proofreading,
 fixing inconsistent wording — without opening Photoshop.
