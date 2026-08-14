@@ -711,6 +711,9 @@ function renderEditor() {
 		if (el) el.hidden = many;
 	}
 	if (many) { renderMultiPane(); return; }
+	// 隠すだけだと前の選択が中に残る。次に開いたとき一瞬でも出ないよう空にする
+	$('#multiList').textContent = '';
+	$('#multiCount').textContent = '';
 
 	const styleEls = ['#fontSel', '#sizeInput', '#fontAddBtn', '#boldBtn', '#italicBtn',
 	                  '#underBtn', '#colorInput', '#colorHex', '#markAddBtn',
@@ -1795,12 +1798,14 @@ async function openPsd(path) {
 		const res = await app.post('/api/psd/open', { path });
 		$('#openDialog').hidden = true;
 		state.selected = null;
+		state.multi.clear();
+		setMultiStatus(null);
 		state.collapsed.clear();
 		$('#editText').dataset.index = '';
 		state.needFit = true;
 		applyDoc(res);
 		const first = state.texts[0];
-		if (first) select(first.index);
+		select(first ? first.index : null);
 		toast(tr('msg.loaded', state.texts.length));
 		// 次に開くときのために、この PSD のフォルダを覚えておく
 		const dir = path.replace(/\\/g, '/').replace(/\/[^/]*$/, '');

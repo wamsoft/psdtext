@@ -34,6 +34,10 @@
 
 * { box-sizing: border-box; }
 
+/* hidden 属性は必ず効かせる。#id や .class に display を書くと
+   ブラウザ既定の [hidden]{display:none} が負けて隠れなくなるため。 */
+[hidden] { display: none !important; }
+
 html, body {
 	height: 100%;
 	margin: 0;
@@ -262,7 +266,6 @@ code { background: var(--bg); padding: 1px 4px; border-radius: 3px; }
 	justify-content: center;
 	z-index: 10;
 }
-.modal[hidden] { display: none; }
 .modal-box {
 	width: min(720px, 92vw);
 	max-height: 84vh;
@@ -331,7 +334,6 @@ code { background: var(--bg); padding: 1px 4px; border-radius: 3px; }
 	box-shadow: 0 -4px 20px #0005;
 	z-index: 9;
 }
-#logPanel[hidden] { display: none; }
 .log-head {
 	display: flex;
 	justify-content: space-between;
@@ -365,7 +367,6 @@ code { background: var(--bg); padding: 1px 4px; border-radius: 3px; }
 	box-shadow: 0 4px 20px #0006;
 	z-index: 20;
 }
-#toast[hidden] { display: none; }
 #toast.error { border-color: var(--error); color: var(--error); }
 
 /*--- 中央: 合成プレビュー --------------------------------------------*/
