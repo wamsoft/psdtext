@@ -13,6 +13,19 @@
 namespace psdtext {
 namespace csv {
 
+//---------------------------------------------------------------------------
+/// 取り込んだ CSV の文字コードを UTF-8 へ揃える。
+///
+/// 日本語版 Excel の「CSV (コンマ区切り)」は Shift-JIS (CP932) で保存される。
+/// そのまま UTF-8 として読むと本文が文字化けしたまま通ってしまい、しかも
+/// 「変更あり」に見えるので、気付かないまま PSD を壊せてしまう。
+///
+/// UTF-8 として妥当ならそのまま、そうでなければ CP932 とみなして変換する。
+/// charsetOut には "utf-8" / "cp932" が入る (画面に出して判断材料にする)。
+/// 変換できない環境 (Windows 以外) や CP932 としても壊れている場合は false。
+bool toUtf8(const std::string& in, std::string& out,
+            std::string* charsetOut = nullptr, std::string* err = nullptr);
+
 using Row   = std::vector<std::string>;
 using Table = std::vector<Row>;
 

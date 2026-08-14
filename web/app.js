@@ -45,6 +45,7 @@ const state = {
 	applying: 0,          // 反映の往復が何本走っているか
 	refreshPending: false,
 	serverGone: false,    // サーバが終了した (画面は用済み)
+	csvPath: '',          // 最後に書き出した CSV (読み込みの既定にする)
 	headTag: '',          // 本文の先頭にある基準への指定 (編集欄には出さない)
 	composing: false,     // IME 変換中
 };
@@ -1376,9 +1377,17 @@ async function openPsd(path) {
 //---------------------------------------------------------------------------
 // CSV
 //---------------------------------------------------------------------------
-function renderReport(r) {
+function renderReport(r, error) {
 	const host = $('#csvReport');
 	host.textContent = '';
+
+	if (error) {
+		const p = document.createElement('p');
+		p.className = 'summary error';
+		p.textContent = error;
+		host.appendChild(p);
+		return;
+	}
 
 	const sum = document.createElement('div');
 	sum.className = 'summary';
@@ -1387,38 +1396,84 @@ function renderReport(r) {
 		: tr('csv.dry', r.changed, r.same, r.notfound);
 	host.appendChild(sum);
 
-	const shown = (r.rows || []).filter(x => x.status !== 'same');
-	if (!shown.length) {
+	// 読めた文字コード。Excel から来た CSV は Shift-JIS のことがあるので、
+	// どう読んだかを見せておく (化けていたら気付けるように)。
+	if (r.charset && r.charset !== 'utf-8') {
+		const cs = document.createElement('p');
+		cs.className = 'hint';
+		cs.textContent = tr('csv.charset', r.charset.toUpperCase());
+		host.appendChild(cs);
+	}
+
+	// 「反映する」が押せない理由を出す。黙って無効になっているのが一番困る。
+	if (!r.applied && r.changed === 0) {
 		const p = document.createElement('p');
 		p.className = 'hint';
-		p.textContent = tr('csv.noDiff');
+		p.textContent = r.notfound
+			? tr('csv.whyNotfound') : tr('csv.whySame');
 		host.appendChild(p);
-		return;
 	}
+
+	const shown = (r.rows || []).filter(x => x.status !== 'same');
+	if (!shown.length) return;
+
 	const table = document.createElement('table');
-	table.innerHTML = `<tr><th>${tr('csv.col.status')}</th><th>lyid</th>` +
-		`<th>${tr('csv.col.layer')}</th><th>${tr('csv.col.note')}</th></tr>`;
+	const head = document.createElement('tr');
+	for (const h of [tr('csv.col.status'), 'lyid', tr('csv.col.layer'), tr('csv.col.note')]) {
+		const th = document.createElement('th');
+		th.textContent = h;
+		head.appendChild(th);
+	}
+	table.appendChild(head);
+
+	const label = { changed: tr('csv.changed'), notfound: tr('csv.notfound'),
+	                error: tr('csv.error') };
 	for (const row of shown.slice(0, 300)) {
-		const tr = document.createElement('tr');
+		const line = document.createElement('tr');
 		const st = document.createElement('td');
 		st.className = row.status;
-		st.textContent = { changed: tr('csv.changed'), notfound: tr('csv.notfound'),
-		                   error: tr('csv.error') }[row.status] || row.status;
+		st.textContent = label[row.status] || row.status;
 		const id = document.createElement('td'); id.textContent = row.lyid || '';
 		const pa = document.createElement('td'); pa.textContent = row.path || '';
 		const ms = document.createElement('td'); ms.textContent = row.message || '';
-		tr.append(st, id, pa, ms);
-		table.appendChild(tr);
+		line.append(st, id, pa, ms);
+		table.appendChild(line);
 	}
 	host.appendChild(table);
 }
 
-async function importCsv(apply) {
-	const file = $('#csvFile').files[0];
-	if (!file && !state.pendingCsv) { toast(tr('msg.pickCsv'), true); return; }
-	const text = file ? await file.text() : state.pendingCsv;
+//---------------------------------------------------------------------------
+/// CSV を書き出す。既定の置き場所は PSD の隣なので、探し回らなくてよい。
+function openExportDialog() {
+	$('#expPath').value = state.csvPath || state.info.csvPath || '';
+	$('#expStatus').textContent = '';
+	$('#exportDialog').hidden = false;
+}
+
+async function exportCsvToFile() {
+	const path = $('#expPath').value.trim();
 	try {
-		const r = await app.post('/api/psd/import', { csv: text, apply });
+		const r = await app.post('/api/psd/export', { path });
+		state.csvPath = r.path;                       // 読み込みの既定にも使う
+		$('#exportDialog').hidden = true;
+		toast(tr('msg.csvWritten', r.path));
+	} catch (e) {
+		$('#expStatus').textContent = serverMessage(e.message);
+		$('#expStatus').className = 'status error';
+	}
+}
+
+//---------------------------------------------------------------------------
+/// 取り込み元は「選んだファイル」か「パス指定」。文字コードの判定はサーバに
+/// 任せるので、ファイルは **生のバイトのまま** 送る (file.text() を通すと
+/// Shift-JIS が化けたあとの文字列になり、もう元へ戻せない)。
+async function importCsv(apply, source) {
+	const src = source || state.pendingCsv;
+	if (!src) { toast(tr('msg.pickCsv'), true); return; }
+	try {
+		const r = (src.path !== undefined)
+			? await app.post('/api/psd/import', { path: src.path, apply })
+			: await app.post('/api/psd/import', src.bytes, { apply: apply ? 1 : 0 });
 		renderReport(r);
 		if (apply) {
 			applyDoc(r, { keepVisibility: true });
@@ -1427,11 +1482,13 @@ async function importCsv(apply) {
 			$('#csvApply').disabled = true;
 			toast(tr('msg.csvUpdated', r.changed));
 		} else {
-			state.pendingCsv = text;
+			state.pendingCsv = src;
 			$('#csvApply').disabled = (r.changed === 0);
 		}
 	} catch (e) {
-		toast(serverMessage(e.message), true);
+		renderReport(null, serverMessage(e.message));
+		state.pendingCsv = null;
+		$('#csvApply').disabled = true;
 	}
 }
 
@@ -1630,21 +1687,31 @@ async function main() {
 	});
 	$('#openPath').addEventListener('keydown', e => { if (e.key === 'Enter') $('#openGo').click(); });
 
-	$('#exportBtn').addEventListener('click', () => {
+	$('#exportBtn').addEventListener('click', openExportDialog);
+	$('#expGo').addEventListener('click', exportCsvToFile);
+	$('#expDownload').addEventListener('click', () => {
+		// ブラウザのダウンロードで受け取りたいとき用 (置き場所はブラウザ任せ)
 		window.location.href = app._url('/api/psd/export', { t: app.token });
+		$('#exportDialog').hidden = true;
 	});
 	$('#importBtn').addEventListener('click', () => {
 		state.pendingCsv = null;
 		$('#csvApply').disabled = true;
 		$('#csvReport').textContent = '';
+		$('#csvFile').value = '';
+		$('#impPath').value = state.csvPath || state.info.csvPath || '';
 		$('#importDialog').hidden = false;
 	});
-	$('#csvDry').addEventListener('click', () => importCsv(false));
+	$('#impRead').addEventListener('click', () => {
+		const path = $('#impPath').value.trim();
+		if (path) importCsv(false, { path });
+	});
 	$('#csvApply').addEventListener('click', () => importCsv(true));
-	$('#csvFile').addEventListener('change', () => {
+	$('#csvFile').addEventListener('change', async () => {
 		state.pendingCsv = null;
 		$('#csvApply').disabled = true;
-		importCsv(false);
+		const file = $('#csvFile').files[0];
+		if (file) importCsv(false, { bytes: await file.arrayBuffer(), name: file.name });
 	});
 
 	$('#saveBtn').addEventListener('click', () => {
@@ -1660,8 +1727,17 @@ async function main() {
 
 	document.querySelectorAll('[data-close]').forEach(b =>
 		b.addEventListener('click', e => { e.target.closest('.modal').hidden = true; }));
-	document.querySelectorAll('.modal').forEach(m =>
-		m.addEventListener('click', e => { if (e.target === m) m.hidden = true; }));
+	// 背景を押して背景で離したときだけ閉じる。
+	// 入力欄の文字をドラッグで全選択すると、指を離す位置がダイアログの外へ
+	// はみ出しがちで、離した位置だけを見ていると勝手に閉じてしまう。
+	document.querySelectorAll('.modal').forEach(m => {
+		let fromBackdrop = false;
+		m.addEventListener('mousedown', e => { fromBackdrop = (e.target === m); });
+		m.addEventListener('click', e => {
+			if (e.target === m && fromBackdrop) m.hidden = true;
+			fromBackdrop = false;
+		});
+	});
 
 	// --- 左ペイン ---
 	$('#filter').addEventListener('input', e => { state.filter = e.target.value; renderTree(); });
@@ -1814,8 +1890,26 @@ async function main() {
 
 	// --- 起動時に開くファイル ---
 	const startup = await app.get('/api/app/startup').catch(() => null);
-	if (startup && startup.open) await openPsd(startup.open);
-	else renderAll();
+	if (startup && startup.open) {
+		await openPsd(startup.open);
+	} else {
+		// すでにサーバ側で開いている文書があれば拾う。REPL や API から開いた
+		// 場合や、画面だけ開き直した場合に、空の画面が出てしまわないように。
+		const info = await app.get('/api/psd/info').catch(() => null);
+		if (info && info.open) {
+			try {
+				const [tree, texts] = await Promise.all([
+					app.get('/api/psd/tree'), app.get('/api/psd/texts'),
+				]);
+				state.needFit = true;
+				applyDoc({ info, tree, texts });
+				const first = state.texts[0];
+				if (first) select(first.index);
+			} catch (e) { renderAll(); }
+		} else {
+			renderAll();
+		}
+	}
 }
 
 //---------------------------------------------------------------------------

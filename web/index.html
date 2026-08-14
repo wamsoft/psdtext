@@ -202,6 +202,24 @@
 	</div>
 </div>
 
+<!-- CSV 書き出し。既定は PSD の隣なので、どこへ出たか探さなくてよい。 -->
+<div id="exportDialog" class="modal" hidden>
+	<div class="modal-box narrow">
+		<div class="modal-head"><span data-i18n="dlg.expTitle">Export a CSV</span><button class="icon close" data-close>×</button></div>
+		<div class="modal-body">
+			<p class="hint" data-i18n="dlg.expHint"></p>
+			<div class="row">
+				<input type="text" id="expPath" spellcheck="false">
+				<button id="expGo" class="primary" data-i18n="dlg.expGo">Export</button>
+			</div>
+			<div class="row">
+				<button id="expDownload" data-i18n="dlg.expDownload">Download instead</button>
+				<span id="expStatus" class="status"></span>
+			</div>
+		</div>
+	</div>
+</div>
+
 <!-- CSV 読み込み -->
 <div id="importDialog" class="modal" hidden>
 	<div class="modal-box">
@@ -209,8 +227,11 @@
 		<div class="modal-body">
 			<p class="hint" data-i18n="dlg.csvHint"></p>
 			<div class="row">
+				<input type="text" id="impPath" spellcheck="false">
+				<button id="impRead" data-i18n="dlg.impRead">Read this file</button>
+			</div>
+			<div class="row">
 				<input type="file" id="csvFile" accept=".csv,text/csv">
-				<button id="csvDry" data-i18n="dlg.csvDry">Check only</button>
 				<button id="csvApply" class="primary" disabled data-i18n="dlg.csvApply">Apply</button>
 			</div>
 			<div id="csvReport" class="report"></div>

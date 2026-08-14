@@ -100,6 +100,7 @@ private:
 		if (op == "save"    && req.method == "POST") return opSave(req);
 		if (op == "image"   && req.method == "GET")  return opImage(req);
 		if (op == "export"  && req.method == "GET")  return opExport(req);
+		if (op == "export"  && req.method == "POST") return opExportFile(req);
 		if (op == "import"  && req.method == "POST") return opImport(req);
 
 		return Response::error(404, "unknown psd operation: " + op);
@@ -351,25 +352,49 @@ private:
 		return r;
 	}
 
+	/// CSV をファイルへ書き出す。既定は PSD の隣 (…/foo_texts.csv)。
+	/// ブラウザのダウンロードだと「どこへ落ちたか分からない」ので、
+	/// 置き場所をこちらで決められるようにしてある。
+	Response opExportFile(const Request& req) {
+		Response deny = requireOpen();
+		if (deny.status != 200) return deny;
+
+		std::string path = req.json()["path"].asStr();
+		std::string err;
+		if (!doc_.exportCsvTo(path, err)) return Response::error(500, err);
+
+		Json j = Json::object();
+		j.set("path",  Json(path.empty() ? doc_.defaultCsvPath() : path));
+		j.set("texts", Json((long long)doc_.textRows().size()));
+		return Response::json(j);
+	}
+
 	Response opImport(const Request& req) {
 		Response deny = requireOpen();
 		if (deny.status != 200) return deny;
 
-		// body は CSV そのもの (text/csv) か、{"csv": "...", "apply": bool}
+		// body は CSV そのもの (text/csv) か、{"csv": "..."} / {"path": "..."}。
+		// 文字コードは document 側で見る (Excel の既定は Shift-JIS) ので、
+		// ここではバイト列のまま渡す。
 		std::string csvText;
 		bool apply = req.param("apply", "1") != "0";
 		if (!req.body.empty() && req.body[0] == '{') {
 			const Json& j = req.json();
-			if (j.isObj() && j.has("csv")) {
-				csvText = j["csv"].asStr();
+			if (j.isObj()) {
 				if (j.has("apply")) apply = j["apply"].asBool(true);
+				if (j.has("csv")) csvText = j["csv"].asStr();
+				else if (j.has("path")) {
+					std::string err;
+					if (!doc_.readFile(j["path"].asStr(), csvText, err))
+						return Response::error(400, err);
+				}
 			}
 		}
-		if (csvText.empty()) csvText = req.body;
+		if (csvText.empty() && (req.body.empty() || req.body[0] != '{')) csvText = req.body;
 		if (csvText.empty()) return Response::error(400, "the request body is empty");
 
-		std::string err;
-		auto rows = doc_.importCsv(csvText, apply, err);
+		std::string err, charset;
+		auto rows = doc_.importCsv(csvText, apply, err, &charset);
 		if (!err.empty()) return Response::error(400, err);
 		if (apply) notifyChanged();
 
@@ -390,6 +415,7 @@ private:
 		}
 		Json j = Json::object();
 		j.set("applied",  Json(apply));
+		j.set("charset",  Json(charset));      // "utf-8" / "cp932" (画面に出す)
 		j.set("changed",  Json(changed));
 		j.set("same",     Json(same));
 		j.set("notfound", Json(notfound));

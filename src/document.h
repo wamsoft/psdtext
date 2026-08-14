@@ -150,9 +150,18 @@ public:
 	// --- CSV ---------------------------------------------------------------
 	/// UTF-8 BOM 付き CSV (lyid, path, text)。Excel でそのまま開ける。
 	std::string exportCsv() const;
+	/// PSD の隣に置く既定の CSV パス (…/foo.psd → …/foo_texts.csv)
+	std::string defaultCsvPath() const;
+	/// CSV をファイルへ書き出す (path が空なら defaultCsvPath)
+	bool exportCsvTo(const std::string& path, std::string& err) const;
+	/// CSV をファイルから読む (バイト列のまま。文字コードは importCsv が見る)
+	bool readFile(const std::string& path, std::string& out, std::string& err) const;
 	/// CSV を取り込む。apply=false なら判定だけ行い、文書は変更しない。
+	/// csv は生のバイト列でよい (UTF-8 でなければ CP932 とみなして変換する)。
+	/// charsetOut にどちらとして読んだかが入る。
 	std::vector<ImportRow> importCsv(const std::string& csv, bool apply,
-	                                 std::string& err);
+	                                 std::string& err,
+	                                 std::string* charsetOut = nullptr);
 
 	const std::vector<TextRow>&  textRows() const { return texts_; }
 	const std::vector<LayerRow>& layerRows() const { return layers_; }

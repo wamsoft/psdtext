@@ -14,6 +14,8 @@
 #include <cctype>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 
 namespace fs = std::filesystem;
 using appserve::Json;
@@ -359,6 +361,7 @@ appserve::Json Document::info() const
 	j.set("layers", Json((long long)layers_.size()));
 	j.set("texts",  Json((long long)texts_.size()));
 	j.set("dirty",  Json((long long)dirtyCount()));
+	j.set("csvPath", Json(defaultCsvPath()));   // CSV の既定の置き場所 (PSD の隣)
 	return j;
 }
 
@@ -748,12 +751,56 @@ std::string Document::exportCsv() const
 	return csv::write(t, true);
 }
 
+//---------------------------------------------------------------------------
+/// PSD の隣。…/foo.psd → …/foo_texts.csv
+/// 「どこへ出したか分からない」「読み込むとき探し回る」を無くすための既定値。
+std::string Document::defaultCsvPath() const
+{
+	if (path_.empty()) return std::string();
+	size_t dot = path_.rfind('.');
+	size_t sl  = path_.find_last_of("/\\");
+	std::string base = (dot != std::string::npos && (sl == std::string::npos || dot > sl))
+		? path_.substr(0, dot) : path_;
+	return base + "_texts.csv";
+}
+
+bool Document::exportCsvTo(const std::string& path, std::string& err) const
+{
+	if (!isOpen()) { err = "no document is open"; return false; }
+	std::string target = path.empty() ? defaultCsvPath() : path;
+	if (target.empty()) { err = "no output path"; return false; }
+
+	std::ofstream f(fs::u8path(target), std::ios::binary | std::ios::trunc);
+	if (!f) { err = "could not write " + target; return false; }
+	const std::string data = exportCsv();
+	f.write(data.data(), (std::streamsize)data.size());
+	if (!f) { err = "could not write " + target; return false; }
+	appserve::logI("csv written: " + target);
+	return true;
+}
+
+bool Document::readFile(const std::string& path, std::string& out, std::string& err) const
+{
+	std::ifstream f(fs::u8path(path), std::ios::binary);
+	if (!f) { err = "could not read " + path; return false; }
+	out.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+	return true;
+}
+
+//---------------------------------------------------------------------------
 std::vector<ImportRow> Document::importCsv(const std::string& text, bool apply,
-                                           std::string& err)
+                                           std::string& err,
+                                           std::string* charsetOut)
 {
 	std::vector<ImportRow> out;
+
+	// Excel が既定で吐く Shift-JIS をそのまま読むと、文字化けした本文で
+	// 上書きできてしまう。ここで UTF-8 へ揃える (揃わなければ取り込まない)。
+	std::string utf8;
+	if (!csv::toUtf8(text, utf8, charsetOut, &err)) return out;
+
 	csv::Table table;
-	if (!csv::parse(text, table, &err)) return out;
+	if (!csv::parse(utf8, table, &err)) return out;
 	if (table.empty()) { err = "the CSV is empty"; return out; }
 
 	// ヘッダから列位置を決める (順序が違っても、余分な列があっても読める)
