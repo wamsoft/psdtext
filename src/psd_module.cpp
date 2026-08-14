@@ -96,6 +96,7 @@ private:
 		if (op == "align"   && req.method == "POST") return opSetAlign(req);
 		if (op == "duplicate" && req.method == "POST") return opDuplicate(req);
 		if (op == "move"      && req.method == "POST") return opMove(req);
+		if (op == "place"     && req.method == "POST") return opPlace(req);
 		if (op == "save"    && req.method == "POST") return opSave(req);
 		if (op == "image"   && req.method == "GET")  return opImage(req);
 		if (op == "export"  && req.method == "GET")  return opExport(req);
@@ -252,6 +253,38 @@ private:
 
 		Json out = doc_.info();
 		out.set("index", Json(ni));
+		out.set("tree",  doc_.tree());
+		out.set("texts", doc_.texts());
+		return Response::json(out);
+	}
+
+	//-----------------------------------------------------------------------
+	/// テキストレイヤの配置 (移動 / 枠の大きさ)。
+	///   {index, dx, dy}            相対移動
+	///   {index, width, height}     枠の大きさ (左上は固定)
+	Response opPlace(const Request& req) {
+		Response deny = requireOpen();
+		if (deny.status != 200) return deny;
+
+		const Json& j = req.json();
+		int index = (int)j["index"].asInt(-1);
+		std::string err;
+
+		if (j.has("dx") || j.has("dy")) {
+			if (!doc_.moveText(index, j["dx"].asReal(0), j["dy"].asReal(0), err))
+				return Response::error(400, err);
+		}
+		if (j.has("width") || j.has("height")) {
+			Json cur = doc_.textAt(index);
+			double w = j.has("width")  ? j["width"].asReal(0)  : cur["boxWidth"].asReal(0);
+			double h = j.has("height") ? j["height"].asReal(0) : cur["boxHeight"].asReal(0);
+			if (!doc_.resizeText(index, w, h, err))
+				return Response::error(400, err);
+		}
+		notifyChanged();
+
+		Json out = doc_.info();
+		out.set("index", Json(index));
 		out.set("tree",  doc_.tree());
 		out.set("texts", doc_.texts());
 		return Response::json(out);

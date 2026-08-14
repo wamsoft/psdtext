@@ -520,3 +520,8 @@ button.linkish:hover { background: none; filter: brightness(1.2); }
 	font: 13px/1.6 "Cascadia Mono", Consolas, "Yu Gothic UI", monospace;
 }
 .pane-foot button.icon { flex: 0 0 auto; padding: 3px 7px; }
+
+#placeBar { padding-top: 2px; }
+#placeBar .num { width: 62px; }
+#stage.dragging { cursor: grabbing; }
+#stage { cursor: default; }

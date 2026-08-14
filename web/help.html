@@ -153,6 +153,21 @@
 					<b>テキストレイヤが 1 つも無い PSD には追加できない</b></li>
 			</ul>
 		</dd>
+		<dt>テキストの位置と枠</dt>
+		<dd>
+			右ペインの「位置」「枠」で数値指定できるほか、次の方法でも動かせる:
+			<ul>
+				<li><b>プレビュー上でドラッグ</b> — 選択中のテキストレイヤの矩形の中を
+					掴んで動かす</li>
+				<li><b>矢印キー</b>で 1px、<kbd>Shift</kbd>+矢印で 10px
+					(編集欄にカーソルが無いとき)</li>
+			</ul>
+			「位置」は文書上の座標、「枠」はテキストの流し込み枠の大きさ。
+			枠を変えて実際に流し込みが変わるのは<b>段落テキスト</b>で、
+			ポイントテキストでは Photoshop 側が字形から枠を作り直す。
+			位置を動かすと PSD 内蔵のラスタも一緒に動くので、開き直すまでの間も
+			見た目がずれない。
+		</dd>
 		<dt>移動 (▲▼)</dt>
 		<dd>
 			<b>同じ階層の中で</b>ひとつ上/下へ動かす。フォルダを選んでいるときは
@@ -248,13 +263,14 @@
 	</ul>
 	<h3>編集でできないこと</h3>
 	<ul>
-		<li>テキストの流し込み枠 (bounds) や位置は変更しない</li>
 		<li>
 			テキストレイヤの追加は<b>既存レイヤの複製が土台</b>
 			(「新規追加」参照)。雛形が無い PSD — つまりテキストレイヤが 1 枚も
 			無い PSD — には追加できない
 		</li>
-		<li>レイヤの位置・大きさは変更できない (Photoshop 側で行う)</li>
+		<li>位置と流し込み枠を変えられるのは<b>テキストレイヤだけ</b>。
+			画像レイヤの移動や拡大縮小は Photoshop 側で行う</li>
+		<li>テキストの回転・変形はできない (変換行列のうち移動成分だけを扱う)</li>
 		<li>重ね順の変更は<b>同じ階層の中だけ</b>。フォルダへの出し入れはできない</li>
 		<li>保存後の合成プレビュー画像 (Photoshop が持つサムネイル) は古いまま</li>
 	</ul>
@@ -273,7 +289,9 @@
 		<tr><td><code>.b state</code></td><td>画面の状態を覗く</td></tr>
 		<tr><td><code>.b call select 3</code></td><td>レイヤを選ぶ</td></tr>
 		<tr><td><code>.b call rename {"index":1,"name":"新名"}</code></td><td>レイヤ名を変える</td></tr>
-		<tr><td><code>.b call move {"index":3,"up":true}</code></td><td>レイヤを動かす</td></tr>
+		<tr><td><code>.b call move {"index":3,"up":true}</code></td><td>重ね順を動かす</td></tr>
+		<tr><td><code>.b call place {"x":200,"y":120}</code></td><td>テキストの位置</td></tr>
+		<tr><td><code>.b call place {"width":320,"height":180}</code></td><td>テキストの枠</td></tr>
 		<tr><td><code>.b call duplicate {"name":"新","text":"本文"}</code></td><td>複製 / 追加</td></tr>
 		<tr><td><code>.b call save</code></td><td>保存</td></tr>
 	</table>

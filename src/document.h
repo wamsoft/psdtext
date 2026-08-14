@@ -58,6 +58,12 @@ struct TextRow {
 	std::vector<std::string> fonts;
 	/// 段落ごとの行揃え (0=左 1=右 2=中央)
 	std::vector<int> paragraphJust;
+
+	/// 流し込み枠 (transform ローカル座標)。UI では幅と高さとして見せる。
+	double boundsL = 0, boundsT = 0, boundsR = 0, boundsB = 0;
+	bool   hasBounds = false;
+	/// 縦書きか (Photoshop の Ornt)
+	bool   vertical = false;
 };
 
 //---------------------------------------------------------------------------
@@ -111,6 +117,11 @@ public:
 	/// 同じ階層の隣の兄弟と入れ替える (up=true で表示上ひとつ上へ)。
 	/// フォルダは中身ごと動く。移動後の index を返す (動かせなければ -1)。
 	int  moveLayer(int index, bool up, std::string& err);
+
+	/// テキストレイヤを平行移動する (文書座標での差分)。
+	bool moveText(int index, double dx, double dy, std::string& err);
+	/// テキストの流し込み枠の大きさを変える (左上は固定、幅と高さを指定)。
+	bool resizeText(int index, double width, double height, std::string& err);
 
 	/// outPath が空なら開いたファイルへ上書き。backup=true なら <name>.psd.bak へ退避。
 	bool save(const std::string& outPath, bool backup, std::string& err);

@@ -284,6 +284,9 @@ void Document::rebuildIndex()
 		t.original = t.tagged;
 
 		psd_->getLayerFonts(r.index, t.fonts, nullptr);
+		t.hasBounds = psd_->getLayerTextBounds(r.index, t.boundsL, t.boundsT,
+		                                       t.boundsR, t.boundsB, nullptr);
+		t.vertical = (l.textData.orientation == "vertical");
 		texts_.push_back(std::move(t));
 	}
 }
@@ -369,6 +372,12 @@ Json textRowJson(const TextRow& t)
 	Json pj = Json::array();
 	for (int j : t.paragraphJust) pj.push(Json(j));
 	o.set("paragraphJust", std::move(pj));
+	o.set("vertical", Json(t.vertical));
+	o.set("hasBounds", Json(t.hasBounds));
+	if (t.hasBounds) {
+		o.set("boxWidth",  Json(t.boundsR - t.boundsL));
+		o.set("boxHeight", Json(t.boundsB - t.boundsT));
+	}
 	o.set("font",          Json(t.font));
 	o.set("fontSize",      Json(t.fontSize));
 	o.set("justification", Json(t.justification));
@@ -540,6 +549,47 @@ int Document::moveLayer(int index, bool up, std::string& err)
 	}
 	appserve::logI("moved layer " + std::to_string(index) + " -> " + std::to_string(ni));
 	return ni;
+}
+
+//---------------------------------------------------------------------------
+bool Document::moveText(int index, double dx, double dy, std::string& err)
+{
+	if (!isOpen()) { err = "no document is open"; return false; }
+	if (dx == 0 && dy == 0) return true;
+	if (!psd_->moveTextLayer(index, dx, dy, &err)) return false;
+
+	// 矩形が変わったので索引を作り直す (dirty は lyid で引き継ぐ)
+	std::vector<TextRow> before = texts_;
+	rebuildIndex();
+	for (auto& t : texts_) {
+		for (const auto& b : before) {
+			if (b.lyid == 0 || b.lyid != t.lyid) continue;
+			t.original = b.original;
+			t.dirty    = true;   // 位置を動かした = 未保存の変更
+			break;
+		}
+	}
+	return true;
+}
+
+bool Document::resizeText(int index, double width, double height, std::string& err)
+{
+	if (!isOpen()) { err = "no document is open"; return false; }
+	for (auto& t : texts_) {
+		if (t.index != index) continue;
+		if (!t.hasBounds) { err = "このテキストレイヤは枠を持っていません"; return false; }
+		if (width < 1 || height < 1) { err = "枠が小さすぎます"; return false; }
+		// 左上は動かさず、右下だけを動かす
+		if (!psd_->setLayerTextBounds(index, t.boundsL, t.boundsT,
+		                              t.boundsL + width, t.boundsT + height, &err))
+			return false;
+		t.boundsR = t.boundsL + width;
+		t.boundsB = t.boundsT + height;
+		t.dirty = true;
+		return true;
+	}
+	err = "layer " + std::to_string(index) + " is not a text layer";
+	return false;
 }
 
 //---------------------------------------------------------------------------

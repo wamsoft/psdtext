@@ -353,6 +353,80 @@ function fitZoom() {
 }
 
 //---------------------------------------------------------------------------
+/// プレビュー上で選択中のテキストレイヤをドラッグして動かす。
+/// 動かしている間は枠だけを追従表示し、離したときに 1 回だけ反映する
+/// (1 ドラッグ = 1 編集なので、取り消しの単位も分かりやすい)。
+function setupCanvasDrag() {
+	const canvas = $('#stage');
+	let drag = null;
+
+	const toImage = (ev) => {
+		const rc = canvas.getBoundingClientRect();
+		return {
+			x: (ev.clientX - rc.left) / rc.width * canvas.width,
+			y: (ev.clientY - rc.top) / rc.height * canvas.height,
+		};
+	};
+
+	canvas.addEventListener('pointerdown', (ev) => {
+		const t = state.selected === null ? null : textOf(state.selected);
+		if (!t) return;
+		const p = toImage(ev);
+		// 選択中のレイヤの矩形の中を掴んだときだけドラッグを始める
+		if (p.x < t.rect[0] || p.x > t.rect[2] || p.y < t.rect[1] || p.y > t.rect[3]) return;
+
+		// 掴んだ時点の合成結果を控えておく。移動中はこれを貼り直して枠を描く
+		// だけにする (毎フレーム合成し直すと重いうえ、非同期の描画が終了後に
+		// 残って例外になる)。
+		const snap = document.createElement('canvas');
+		snap.width = canvas.width;
+		snap.height = canvas.height;
+		snap.getContext('2d').drawImage(canvas, 0, 0);
+
+		drag = { startX: p.x, startY: p.y, dx: 0, dy: 0, rect: t.rect.slice(), snap };
+		// 捕捉できない環境 (合成イベント等) でもドラッグ自体は続けられるように
+		try { canvas.setPointerCapture(ev.pointerId); } catch (e) { /* 無くても動く */ }
+		canvas.classList.add('dragging');
+		ev.preventDefault();
+	});
+
+	canvas.addEventListener('pointermove', (ev) => {
+		if (!drag) return;
+		const p = toImage(ev);
+		drag.dx = Math.round(p.x - drag.startX);
+		drag.dy = Math.round(p.y - drag.startY);
+
+		const ctx = canvas.getContext('2d');
+		ctx.save();
+		ctx.globalAlpha = 1;
+		ctx.globalCompositeOperation = 'source-over';
+		ctx.clearRect(0, 0, canvas.width, canvas.height);
+		ctx.drawImage(drag.snap, 0, 0);
+		ctx.strokeStyle = '#6cb6ff';
+		ctx.lineWidth = Math.max(1, 2 / state.zoom);
+		ctx.setLineDash([]);
+		ctx.strokeRect(drag.rect[0] + drag.dx, drag.rect[1] + drag.dy,
+		               drag.rect[2] - drag.rect[0], drag.rect[3] - drag.rect[1]);
+		ctx.restore();
+	});
+
+	const end = (ev) => {
+		if (!drag) return;
+		const { dx, dy } = drag;
+		drag = null;
+		canvas.classList.remove('dragging');
+		try {
+			if (ev && ev.pointerId !== undefined && canvas.hasPointerCapture(ev.pointerId))
+				canvas.releasePointerCapture(ev.pointerId);
+		} catch (e) { /* 捕捉していなければ何もしなくてよい */ }
+		if (dx || dy) moveText(dx, dy);
+		else scheduleRedraw();
+	};
+	canvas.addEventListener('pointerup', end);
+	canvas.addEventListener('pointercancel', end);
+}
+
+//---------------------------------------------------------------------------
 // 編集ペイン
 //---------------------------------------------------------------------------
 function select(index) {
@@ -370,8 +444,10 @@ function renderEditor() {
 	meta.textContent = '';
 
 	const styleEls = ['#fontSel', '#sizeInput', '#fontAddBtn', '#boldBtn',
-	                  '#italicBtn', '#underBtn'];
+	                  '#italicBtn', '#underBtn', '#posX', '#posY'];
 	for (const s of styleEls) $(s).disabled = !t;
+	$('#boxW').disabled = !(t && t.hasBounds);
+	$('#boxH').disabled = !(t && t.hasBounds);
 	document.querySelectorAll('.align').forEach(b => { b.disabled = !t; });
 
 	if (!t) {
@@ -411,6 +487,20 @@ function renderEditor() {
 	}
 	sel.value = t.font || '';
 	$('#sizeInput').value = t.fontSize ? Math.round(t.fontSize * 10) / 10 : '';
+
+	// 配置。位置はレイヤ矩形の左上 (文書座標)、枠は流し込み枠の大きさ。
+	$('#posX').value = t.rect[0];
+	$('#posY').value = t.rect[1];
+	if (t.hasBounds) {
+		$('#boxW').value = Math.round(t.boxWidth);
+		$('#boxH').value = Math.round(t.boxHeight);
+	} else {
+		$('#boxW').value = '';
+		$('#boxH').value = '';
+	}
+	$('#placeHint').textContent = t.vertical
+		? '縦書き (仮描画は横書きで代用)'
+		: (t.hasBounds ? '' : '枠情報なし');
 
 	const curAlign = (t.paragraphJust && t.paragraphJust[0]) || 0;
 	document.querySelectorAll('.align').forEach(b => {
@@ -608,6 +698,34 @@ async function duplicateLayer() {
 			select(r.index);
 		}
 		toast('レイヤを複製しました');
+	} catch (e) {
+		toast(e.message, true);
+	}
+}
+
+/// テキストレイヤを移動する (文書座標での差分)
+async function moveText(dx, dy) {
+	const t = state.selected === null ? null : textOf(state.selected);
+	if (!t || (!dx && !dy)) return;
+	try {
+		const r = await app.post('/api/psd/place', { index: t.index, dx, dy });
+		$('#editText').dataset.index = '';
+		applyDoc(r, { keepVisibility: true });
+		scheduleRedraw();
+	} catch (e) {
+		toast(e.message, true);
+	}
+}
+
+/// 流し込み枠の大きさを変える (左上は固定)
+async function resizeText(width, height) {
+	const t = state.selected === null ? null : textOf(state.selected);
+	if (!t) return;
+	try {
+		const r = await app.post('/api/psd/place', { index: t.index, width, height });
+		$('#editText').dataset.index = '';
+		applyDoc(r, { keepVisibility: true });
+		scheduleRedraw();
 	} catch (e) {
 		toast(e.message, true);
 	}
@@ -847,6 +965,22 @@ function setupReplBridge() {
 		await moveLayer(up);
 		return state.selected;
 	});
+	app.command('place', async (a) => {
+		const t = textOf(state.selected);
+		if (!t) throw new Error('テキストレイヤを選んでください');
+		const body = { index: t.index };
+		if (a.dx !== undefined || a.dy !== undefined) {
+			body.dx = a.dx || 0; body.dy = a.dy || 0;
+		}
+		if (a.x !== undefined) body.dx = a.x - t.rect[0];
+		if (a.y !== undefined) body.dy = a.y - t.rect[1];
+		if (a.width !== undefined)  body.width = a.width;
+		if (a.height !== undefined) body.height = a.height;
+		const r = await app.post('/api/psd/place', body);
+		applyDoc(r, { keepVisibility: true });
+		const n = textOf(t.index);
+		return n ? { rect: n.rect, boxWidth: n.boxWidth, boxHeight: n.boxHeight } : null;
+	});
 	app.command('duplicate', async (a) => {
 		const t = textOf(state.selected);
 		if (!t) throw new Error('テキストレイヤを選んでください');
@@ -998,6 +1132,7 @@ async function main() {
 		state.showBounds = e.target.checked;
 		scheduleRedraw();
 	});
+	setupCanvasDrag();
 	window.addEventListener('resize', () => { if (state.zoom === state.fitZoom) fitZoom(); });
 	// 別 DPI のモニタへ移動したりブラウザのズームが変わったら CSS サイズを取り直す
 	if (window.matchMedia) {
@@ -1030,6 +1165,26 @@ async function main() {
 		const v = parseFloat(e.target.value);
 		if (v > 0) wrapSelection(`[size=${v}]`, '[/size]');
 	});
+	// 位置は絶対値で入れてもらい、差分にして送る
+	const commitPos = () => {
+		const t = state.selected === null ? null : textOf(state.selected);
+		if (!t) return;
+		const nx = parseFloat($('#posX').value);
+		const ny = parseFloat($('#posY').value);
+		if (!isFinite(nx) || !isFinite(ny)) return;
+		moveText(nx - t.rect[0], ny - t.rect[1]);
+	};
+	$('#posX').addEventListener('change', commitPos);
+	$('#posY').addEventListener('change', commitPos);
+
+	const commitBox = () => {
+		const w = parseFloat($('#boxW').value);
+		const h = parseFloat($('#boxH').value);
+		if (isFinite(w) && isFinite(h) && w >= 1 && h >= 1) resizeText(w, h);
+	};
+	$('#boxW').addEventListener('change', commitBox);
+	$('#boxH').addEventListener('change', commitBox);
+
 	$('#fontAddBtn').addEventListener('click', openFontDialog);
 	$('#fontFilter').addEventListener('input', renderSysFonts);
 	$('#fontAddGo').addEventListener('click', () => addFont($('#fontManual').value.trim()));
@@ -1038,6 +1193,15 @@ async function main() {
 
 	document.addEventListener('keydown', e => {
 		if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); $('#saveBtn').click(); }
+		// 編集欄や入力欄にカーソルが無いときだけ、矢印キーで 1px ずつ動かす
+		const inField = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+		if (!inField && state.selected !== null &&
+		    ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+			e.preventDefault();
+			const step = e.shiftKey ? 10 : 1;
+			moveText(e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0,
+			         e.key === 'ArrowUp'   ? -step : e.key === 'ArrowDown'  ? step : 0);
+		}
 		if (e.key === 'F1') { e.preventDefault(); openHelp(); }
 		if (e.key === 'F2' && document.activeElement !== $('#editText')) {
 			e.preventDefault();

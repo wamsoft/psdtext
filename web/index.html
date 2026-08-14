@@ -96,6 +96,18 @@
 			書式は本文中のタグで表す。編集欄で範囲を選んでからボタンを押すとタグが入る。
 		</p>
 
+		<div id="placeBar" class="style-bar">
+			<label>位置
+				<input type="number" id="posX" class="num" step="1" disabled title="文書上の X 座標">
+				<input type="number" id="posY" class="num" step="1" disabled title="文書上の Y 座標">
+			</label>
+			<label>枠
+				<input type="number" id="boxW" class="num" step="1" min="1" disabled title="流し込み枠の幅">
+				<input type="number" id="boxH" class="num" step="1" min="1" disabled title="流し込み枠の高さ">
+			</label>
+			<span id="placeHint" class="status"></span>
+		</div>
+
 		<textarea id="editText" spellcheck="false" placeholder="レイヤを選ぶと編集できます" disabled></textarea>
 		<div class="edit-actions">
 			<button id="applyBtn" disabled title="本文を反映 (Ctrl+Enter)">反映</button>

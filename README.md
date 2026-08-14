@@ -66,6 +66,11 @@ PSD 内蔵のテキスト画像は Photoshop で開き直すまで更新され�
 **複製** は名前と本文をその場で決められるので、本文を書き換えれば実質
 「新規テキストレイヤの追加」になる。
 
+テキストレイヤの**位置と流し込み枠**は、右ペインの数値欄・プレビュー上の
+ドラッグ・矢印キー (Shift で 10px) のどれでも変えられる。位置を動かすと
+PSD 内蔵のラスタも一緒に動くので、Photoshop で開き直すまでの間も見た目が
+ずれない。
+
 **レイヤ名の変更**は、ツリーの名前をダブルクリックするか、選択して `F2`
 (または「名前」ボタン)。Enter で確定、Escape で取り消し。テキストレイヤ以外
 にも使える。
@@ -173,6 +178,7 @@ cmake --preset windows -DPSDTEXT_APPSERVE_DIR=D:/test/appserve \
 | `POST /api/psd/align` | `{index, paragraph?, align}` で行揃えを変更 (paragraph 省略で全段落) |
 | `POST /api/psd/duplicate` | `{index, name?, text?}` でレイヤを複製 (本文を変えれば新規追加) |
 | `POST /api/psd/move` | `{index, direction}` で同じ階層内をひとつ上/下へ (フォルダは中身ごと) |
+| `POST /api/psd/place` | `{index, dx, dy}` で移動 / `{index, width, height}` で流し込み枠 |
 | `POST /api/psd/save` | `{path?, backup?}` で保存 (path 省略で上書き) |
 | `GET  /api/psd/image?index=N` | レイヤの見た目を生 RGBA で返す (`X-Image-Width/Height`) |
 | `GET  /api/psd/export` | テキストを CSV で書き出す |
@@ -202,7 +208,9 @@ cmake --preset windows -DPSDTEXT_APPSERVE_DIR=D:/test/appserve \
 - テキストレイヤの追加は既存レイヤの複製が土台 (Photoshop が受け付ける構造を
   確実に保つため)。書式と位置は複製元を引き継ぎ、テキストレイヤが 1 枚も無い
   PSD には追加できない
-- レイヤの位置・大きさは変更できない (Photoshop 側で行う)
+- 位置と流し込み枠を変えられるのはテキストレイヤだけ。画像レイヤの移動や
+  拡大縮小は Photoshop 側で行う
+- テキストの回転・変形はできない (変換行列のうち移動成分だけを扱う)
 - 重ね順の変更は同じ階層の中だけ。フォルダへの出し入れはできない
 - 合成プレビュー画像は編集後も古いまま。Photoshop で開き直すと再合成される
 - テキストの流し込み枠 (bounds) は変えないので、長くすると枠からはみ出る
