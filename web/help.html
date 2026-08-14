@@ -42,6 +42,9 @@
 			("Reset" goes back to the visibility stored in the file).
 			Layers marked <code>T</code> are text layers, and <code>●</code> means
 			there are unsaved changes.
+			The "List" toggles above narrow down <b>what is listed at all</b> — a
+			different thing from visibility (text / unsaved / currently shown).
+			The search box at the top matches layer names and body text.
 		</dd>
 		<dt>Centre: Preview</dt>
 		<dd>
@@ -63,7 +66,9 @@
 <section id="h-basic">
 	<h2>Basic flow</h2>
 	<ol>
-		<li><b>Open…</b> and pick a PSD (or start with <code>psdtext foo.psd</code>)</li>
+		<li><b>Open…</b> and pick a PSD — <b>dropping a PSD onto psdtext.exe (or a
+			shortcut to it) opens it too</b>, as does <code>psdtext foo.psd</code>.
+			The dialog starts in the folder you used last</li>
 		<li>Select a text layer in the tree on the left</li>
 		<li>Rewrite the body in the pane on the right</li>
 		<li><b>Apply</b> (<kbd>Ctrl</kbd>+<kbd>Enter</kbd>) to put it into the document</li>
@@ -261,8 +266,29 @@ second line"</pre>
 		<b>Import CSV</b> first performs a <b>check only</b> pass and reports how many
 		rows would change, stay identical, or fail to resolve. Press "Apply" once the
 		report looks right (that puts it into the in-memory document — the file is
-		written by "Save").
+		written by "Save"). <b>A CSV can also be dropped onto the window.</b>
 	</p>
+	<dl>
+		<dt>Where it goes</dt>
+		<dd>
+			Exports land <b>next to the PSD</b> as <code>&lt;name&gt;_texts.csv</code>
+			by default, and the import dialog starts from that same path — no hunting
+			for the file. Use "Download instead" to receive it through the browser.
+		</dd>
+		<dt>Encoding</dt>
+		<dd>
+			Exports are UTF-8 with a BOM. Imports also accept
+			<b>the Shift-JIS file Excel saves by default</b>; the report says which
+			one it read.
+		</dd>
+		<dt>When "Apply" stays disabled</dt>
+		<dd>
+			It needs at least one row that differs. The reason (nothing differs / no
+			row matched a layer) is written under the report. A CSV exported from a
+			different PSD shows up as "unresolved" because the <code>lyid</code>
+			values do not match.
+		</dd>
+	</dl>
 </section>
 
 <section id="h-save">
@@ -279,6 +305,8 @@ second line"</pre>
 	<h2>Shortcuts</h2>
 	<table>
 		<tr><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>Apply the body</td></tr>
+		<tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>Apply and move to the next text layer (its body comes up selected, ready to retype)</td></tr>
+		<tr><td><kbd>Alt</kbd>+<kbd>↑</kbd> / <kbd>↓</kbd></td><td>Move to the previous / next text layer</td></tr>
 		<tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save</td></tr>
 		<tr><td><kbd>F2</kbd></td><td>Rename the selected layer</td></tr>
 		<tr><td><kbd>F1</kbd></td><td>This help</td></tr>

@@ -60,9 +60,15 @@ on this PC can be used; the edit pane says so when one is missing.
 ## Using it
 
 1. Start `psdtext` and a browser opens (Edge / Chrome in app mode)
-2. "Open…" and pick a PSD
+2. "Open…" and pick a PSD — **dropping a PSD onto `psdtext.exe` (or a shortcut)
+   opens it too**, and the dialog starts in the folder you used last
 3. Select a text layer in the tree on the left and edit it on the right
 4. **Apply** (Ctrl+Enter) to put it into the document, **Save** (Ctrl+S) to write the file
+
+**Ctrl+Shift+Enter** applies and moves straight to the next text layer with its
+body selected, so you can keep retyping; **Alt+↑/↓** moves between text layers.
+The "List" toggles on the left narrow the tree down to text / unsaved / visible
+layers.
 
 **When psdtext exits, its browser window closes itself** (browsers that refuse to
 close a window say so on the page instead) — so you never end up with a pile of
@@ -144,7 +150,14 @@ from Excel.
 
 ### Bulk editing with CSV
 
-**Export CSV** produces this (UTF-8 with BOM and CRLF, so Excel opens it directly):
+**Export CSV** writes `<name>_texts.csv` **next to the PSD** by default, and the
+import dialog starts from that same path — no hunting for the file (a browser
+download is still one click away). A CSV can also be dropped onto the window.
+
+Exports are UTF-8 with a BOM and CRLF, so Excel opens them directly; imports also
+accept **the Shift-JIS file Excel saves by default**, and the report says which
+encoding it read. "Apply" needs at least one differing row, and tells you why when
+there is none. The format:
 
 ```csv
 lyid,path,text

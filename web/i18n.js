@@ -45,6 +45,13 @@ const DICT = {
 		'tree.eye.folder': 'このフォルダ以下の表示を切り替え (プレビュー専用)',
 		'tree.eye.layer':  '表示を切り替え (プレビュー専用)',
 		'tree.rename.hint': 'ダブルクリックで名前を変更',
+		'tree.filter':     '一覧',
+		'tree.flt.text':   'テキスト',
+		'tree.flt.text.title': 'テキストレイヤだけ一覧に出す',
+		'tree.flt.dirty':  '未保存',
+		'tree.flt.dirty.title': '変更したレイヤだけ一覧に出す',
+		'tree.flt.visible': '表示中',
+		'tree.flt.visible.title': '表示 ON のレイヤだけ一覧に出す',
 
 		// --- 中央ペイン ---
 		'view.zoomOut.title': '縮小',
@@ -206,6 +213,9 @@ const DICT = {
 		'msg.pickCsv':     'CSV ファイルを選んでください',
 		'msg.helpFailed':  'ヘルプを読み込めませんでした: {0}',
 		'msg.needText':    'テキストレイヤを選んでください',
+		'msg.lastLayer':   '一番下のテキストレイヤです',
+		'msg.dropPsd':     '{0} はここへは落とせません。PSD は psdtext.exe (かそのショートカット) へ落とすか、「開く…」から選んでください',
+		'msg.dropNeedPsd': '先に PSD を開いてください',
 	},
 
 	en: {
@@ -240,6 +250,13 @@ const DICT = {
 		'tree.eye.folder': 'Toggle this folder and its contents (preview only)',
 		'tree.eye.layer':  'Toggle visibility (preview only)',
 		'tree.rename.hint': 'Double-click to rename',
+		'tree.filter':     'List',
+		'tree.flt.text':   'Text',
+		'tree.flt.text.title': 'List text layers only',
+		'tree.flt.dirty':  'Unsaved',
+		'tree.flt.dirty.title': 'List edited layers only',
+		'tree.flt.visible': 'Shown',
+		'tree.flt.visible.title': 'List layers that are currently visible',
 
 		'view.zoomOut.title': 'Zoom out',
 		'view.zoomIn.title':  'Zoom in',
@@ -395,6 +412,9 @@ const DICT = {
 		'msg.pickCsv':     'Pick a CSV file first',
 		'msg.helpFailed':  'Could not load the help: {0}',
 		'msg.needText':    'Select a text layer first',
+		'msg.lastLayer':   'This is the last text layer',
+		'msg.dropPsd':     '{0} cannot be dropped here. Drop a PSD onto psdtext.exe (or its shortcut), or pick it with "Open…"',
+		'msg.dropNeedPsd': 'Open a PSD first',
 	},
 };
 

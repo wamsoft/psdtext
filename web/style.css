@@ -415,6 +415,20 @@ button.mini {
 }
 button.mini.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 
+/* 一覧の絞り込み (表示 ON/OFF とは別物なので、目玉アイコンと離して置く) */
+#listFilter {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 4px 10px 5px;
+	border-bottom: 1px solid var(--border);
+	background: var(--bg-pane);
+	position: sticky;
+	top: 29px;
+	z-index: 1;
+}
+.lf-label { font-size: 11px; color: var(--fg-dim); margin-right: 2px; }
+
 .twist { width: 12px; flex: none; text-align: center; color: var(--fg-dim); cursor: pointer; }
 .eye {
 	width: 16px;

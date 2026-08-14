@@ -46,6 +46,8 @@ const state = {
 	refreshPending: false,
 	serverGone: false,    // サーバが終了した (画面は用済み)
 	csvPath: '',          // 最後に書き出した CSV (読み込みの既定にする)
+	settings: {},         // 画面をまたいで残す設定 (前回のフォルダなど)
+	listFilter: { text: false, dirty: false, visible: false },  // 一覧に出す対象
 	headTag: '',          // 本文の先頭にある基準への指定 (編集欄には出さない)
 	composing: false,     // IME 変換中
 };
@@ -140,6 +142,42 @@ function matchesFilter(node) {
 	return !!(t && (t.plain || '').toLowerCase().includes(f));
 }
 
+/// 一覧に出すかどうか。表示 ON/OFF (プレビュー用) とは別で、
+/// 「今いじりたいレイヤだけ並べる」ための絞り込み。
+function passesListFilter(node) {
+	const f = state.listFilter;
+	if (f.text && !node.text) return false;
+	if (f.dirty) {
+		const t = textOf(node.index);
+		if (!t || !t.dirty) return false;
+	}
+	if (f.visible && state.visible.get(node.index) === false) return false;
+	return true;
+}
+
+/// フィルタが効いているとき、フォルダは中身が残っている場合だけ出す
+/// (空のフォルダだけが並ぶと読みづらい)
+function folderHasVisibleChild(index) {
+	for (const l of state.tree) {
+		if (l.kind === 'divider') continue;
+		let p = l.parent, guard = 0;
+		while (p >= 0 && guard++ < 64) {
+			if (p === index) {
+				if (l.kind !== 'folder' && matchesFilter(l) && passesListFilter(l)) return true;
+				break;
+			}
+			const pn = state.byIndex.get(p);
+			p = pn ? pn.parent : -1;
+		}
+	}
+	return false;
+}
+
+function listFilterOn() {
+	const f = state.listFilter;
+	return !!(f.text || f.dirty || f.visible || state.filter.trim());
+}
+
 function renderTree() {
 	const host = $('#tree');
 	host.textContent = '';
@@ -150,7 +188,13 @@ function renderTree() {
 	for (const l of [...state.tree].reverse()) {
 		if (l.kind === 'divider') continue;   // フォルダの区切りは内部表現なので出さない
 		if (hiddenByCollapse(l)) continue;
-		if (!matchesFilter(l)) continue;
+		if (l.kind === 'folder') {
+			// フォルダは、中に出すものが残っているときだけ
+			if (listFilterOn() && !folderHasVisibleChild(l.index)) continue;
+		} else {
+			if (!matchesFilter(l)) continue;
+			if (!passesListFilter(l)) continue;
+		}
 
 		const row = document.createElement('div');
 		row.className = 'tree-row' +
@@ -1032,6 +1076,44 @@ async function commitTagged(r, t) {
 }
 
 //---------------------------------------------------------------------------
+// レイヤ間の移動 (打ち替え作業を止めないための足まわり)
+//---------------------------------------------------------------------------
+
+/// いま一覧に出ているテキストレイヤを、画面に並んでいる順で
+function listedTextLayers() {
+	return [...state.tree].reverse().filter(l =>
+		l.text && !hiddenByCollapse(l) && matchesFilter(l) && passesListFilter(l));
+}
+
+/// 本文へカーソルを移す。selectAll なら全選択 (そのまま打ち替えられる)
+function focusBody(selectAll) {
+	const ta = bodyEl();
+	if (ta.contentEditable === 'false') return;
+	ta.focus();
+	if (selectAll) setBodySel(state.headTag.length, bodyText().length);
+}
+
+/// 前後のテキストレイヤへ移る。dir = -1 で上、+1 で下 (画面の並び)。
+/// 端まで来たら止まる (一周すると編集済みを踏み直すため)。
+function gotoAdjacentText(dir) {
+	const list = listedTextLayers();
+	if (!list.length) return false;
+	const i = list.findIndex(l => l.index === state.selected);
+	const next = (i < 0) ? list[0] : list[i + dir];
+	if (!next) return false;
+	select(next.index);
+	focusBody(true);
+	return true;
+}
+
+/// 反映してから次のレイヤへ (Ctrl+Shift+Enter)
+async function applyAndNext() {
+	const t = curText();
+	if (t && bodyText() !== t.text) await applyText();
+	if (!gotoAdjacentText(1)) toast(tr('msg.lastLayer'));
+}
+
+//---------------------------------------------------------------------------
 // 編集操作
 //---------------------------------------------------------------------------
 async function applyText() {
@@ -1369,6 +1451,10 @@ async function openPsd(path) {
 		const first = state.texts[0];
 		if (first) select(first.index);
 		toast(tr('msg.loaded', state.texts.length));
+		// 次に開くときのために、この PSD のフォルダを覚えておく
+		const dir = path.replace(/\\/g, '/').replace(/\/[^/]*$/, '');
+		state.settings.lastDir = dir;
+		app.post('/api/app/settings', { lastDir: dir, lastPsd: path }).catch(() => {});
 	} catch (e) {
 		toast(serverMessage(e.message), true);
 	}
@@ -1677,9 +1763,12 @@ async function main() {
 	// --- ツールバー ---
 	$('#openBtn').addEventListener('click', async () => {
 		$('#openDialog').hidden = false;
-		const roots = await app.get('/api/fs/roots');
-		const cwd = (roots.roots || []).find(r => r.kind === 'cwd');
-		if (!$('#fsList').childElementCount) browseTo(cwd ? cwd.path : '.');
+		if ($('#fsList').childElementCount) return;      // 開いた場所を保つ
+		// 前回開いたフォルダから始める。無ければカレント。
+		if (state.settings.lastDir) { browseTo(state.settings.lastDir); return; }
+		const roots = await app.get('/api/fs/roots').catch(() => null);
+		const cwd = roots && (roots.roots || []).find(r => r.kind === 'cwd');
+		browseTo(cwd ? cwd.path : '.');
 	});
 	$('#openGo').addEventListener('click', () => {
 		const p = $('#openPath').value.trim();
@@ -1741,6 +1830,12 @@ async function main() {
 
 	// --- 左ペイン ---
 	$('#filter').addEventListener('input', e => { state.filter = e.target.value; renderTree(); });
+	document.querySelectorAll('.flt').forEach(b => b.addEventListener('click', () => {
+		const k = b.dataset.flt;
+		state.listFilter[k] = !state.listFilter[k];
+		b.classList.toggle('on', state.listFilter[k]);
+		renderTree();
+	}));
 	$('#showAllBtn').addEventListener('click', () => {
 		state.tree.forEach(l => state.visible.set(l.index, true));
 		renderTree();
@@ -1808,7 +1903,12 @@ async function main() {
 	ta.addEventListener('compositionstart', () => { state.composing = true; });
 	ta.addEventListener('compositionend', () => { state.composing = false; onBodyInput(); });
 	ta.addEventListener('keydown', e => {
-		if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); applyText(); }
+		if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+			e.preventDefault();
+			// Shift 付きなら、反映してそのまま次のレイヤへ (打ち替えを続けやすく)
+			if (e.shiftKey) applyAndNext();
+			else applyText();
+		}
 	});
 	ta.addEventListener('click', onBodyClick);
 	// カーソル / 選択範囲が動いたら書式パネルの編集対象を切り替える
@@ -1866,6 +1966,12 @@ async function main() {
 
 	document.addEventListener('keydown', e => {
 		if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); $('#saveBtn').click(); }
+		// Alt+↑/↓ で前後のテキストレイヤへ (本文にカーソルがあっても効く)
+		if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+			e.preventDefault();
+			gotoAdjacentText(e.key === 'ArrowDown' ? 1 : -1);
+			return;
+		}
 		// 編集欄や入力欄にカーソルが無いときだけ、矢印キーで 1px ずつ動かす
 		// (本文は contenteditable なので isContentEditable でも見る)
 		const el = document.activeElement || document.body;
@@ -1886,9 +1992,11 @@ async function main() {
 			.forEach(m => { m.hidden = true; });
 	});
 
+	setupDrop();
 	watchServer();
 
 	// --- 起動時に開くファイル ---
+	state.settings = await app.get('/api/app/settings').catch(() => ({})) || {};
 	const startup = await app.get('/api/app/startup').catch(() => null);
 	if (startup && startup.open) {
 		await openPsd(startup.open);
@@ -1910,6 +2018,37 @@ async function main() {
 			renderAll();
 		}
 	}
+}
+
+//---------------------------------------------------------------------------
+/// 画面へのファイルのドロップ。
+///
+/// PSD は開けない。ブラウザはセキュリティ上、ドロップされたファイルの
+/// **実際のパス**を渡してくれないので、「元のファイルをその場で開いて、
+/// 編集していないレイヤはバイト単位で保つ」という psdtext のやり方が成立
+/// しない。PSD は exe / ショートカットへ落としてもらう (それは今でも動く)。
+///
+/// CSV は中身さえあればよいので、そのまま取り込みに回せる。
+function setupDrop() {
+	// 既定の動作 (ページがそのファイルへ遷移して UI が消える) は必ず止める
+	document.addEventListener('dragover', e => { e.preventDefault(); });
+	document.addEventListener('drop', async (e) => {
+		e.preventDefault();
+		const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+		if (!file) return;
+
+		if (/\.csv$/i.test(file.name)) {
+			if (!state.info.open) { toast(tr('msg.dropNeedPsd'), true); return; }
+			$('#csvReport').textContent = '';
+			$('#csvApply').disabled = true;
+			$('#csvFile').value = '';
+			$('#impPath').value = state.csvPath || state.info.csvPath || '';
+			$('#importDialog').hidden = false;
+			importCsv(false, { bytes: await file.arrayBuffer(), name: file.name });
+			return;
+		}
+		toast(tr('msg.dropPsd', file.name), true);
+	});
 }
 
 //---------------------------------------------------------------------------

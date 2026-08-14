@@ -37,6 +37,13 @@
 				<button id="resetVisBtn" class="mini" data-i18n="tree.reset" data-i18n-title="tree.reset.title">Reset</button>
 			</span>
 		</div>
+		<!-- 一覧に出すものの絞り込み (上の目玉アイコン = プレビューの表示 ON/OFF とは別) -->
+		<div id="listFilter">
+			<span class="lf-label" data-i18n="tree.filter">List</span>
+			<button class="mini flt" data-flt="text" data-i18n="tree.flt.text" data-i18n-title="tree.flt.text.title">Text</button>
+			<button class="mini flt" data-flt="dirty" data-i18n="tree.flt.dirty" data-i18n-title="tree.flt.dirty.title">Unsaved</button>
+			<button class="mini flt" data-flt="visible" data-i18n="tree.flt.visible" data-i18n-title="tree.flt.visible.title">Shown</button>
+		</div>
 		<div id="tree"></div>
 		<div class="pane-foot">
 			<button id="moveUpBtn" class="icon" disabled data-i18n-title="tree.up.title">▲</button>

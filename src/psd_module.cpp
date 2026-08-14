@@ -7,6 +7,7 @@
 //---------------------------------------------------------------------------
 #include "psd_module.h"
 #include "document.h"
+#include "settings.h"
 
 #include <appserve/appserve.h>
 
@@ -37,6 +38,16 @@ public:
 			Json j = Json::object();
 			j.set("open", Json(startup_));
 			return Response::json(j);
+		});
+
+		// 画面をまたいで残す設定 (前回開いたフォルダなど)。
+		// GET で全部返し、POST で渡されたキーだけ上書きする。
+		reg.route("/api/app/settings", Affinity::Any, [](const Request& r) {
+			if (r.method == "POST") {
+				if (!Settings::merge(r.json()))
+					return Response::error(500, "could not save settings");
+			}
+			return Response::json(Settings::load());
 		});
 
 		// --- REPL コマンド (エージェント / 手動デバッグ用) ---
