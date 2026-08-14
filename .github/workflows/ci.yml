@@ -30,6 +30,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 書式マークのタグ組み替えは UI から目視で確かめにくいので単体で押さえる
+      - name: Formatting-mark unit test
+        run: node tests/tags.test.mjs
+
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
