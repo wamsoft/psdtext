@@ -32,7 +32,7 @@ Built from:
 |---|---|
 | Left | Layer tree. Folding, plus visibility toggles for folders and individual layers |
 | Centre | **Composite preview** that follows those visibility toggles |
-| Right | Editing for the selected text layer (formatting, alignment, font, position) |
+| Right | Editing for the selected text layer (formatting marks, body, position) |
 
 Visibility toggles are **preview-only** and never reach the PSD. "Reset" goes back
 to the visibility stored in the file.
@@ -64,11 +64,23 @@ on this PC can be used; the edit pane says so when one is missing.
 3. Select a text layer in the tree on the left and edit it on the right
 4. **Apply** (Ctrl+Enter) to put it into the document, **Save** (Ctrl+S) to write the file
 
+**When psdtext exits, its browser window closes itself** (browsers that refuse to
+close a window say so on the page instead) — so you never end up with a pile of
+dead-looking windows and no idea which one is live.
+
 Saving over the original keeps it as `<name>.psd.bak` (an existing `.bak` is never
 overwritten). Enter a path in the save dialog to save under a different name.
 
-The formatting buttons (B / I / U / font / size) insert tags around the selection
-in the edit box. The alignment buttons apply to the whole paragraph.
+Formatting is edited through **marks**. The edit box shows no tags — instead a
+`◆` chip sits wherever the formatting changes. What you edit is **the mark the
+caret belongs to**: put the caret anywhere and the mark in effect there appears in
+the panel. **With no mark before the caret you are on the base** — the initial
+formatting of the whole layer — so changing it changes everything that carries no
+explicit formatting (which is all most edits need).
+
+Chips can be clicked to select, and deleted with `Backspace` like a single
+character. Selecting a range of text formats just that range. Formatting changes
+are applied immediately; only typed text needs "Apply".
 
 **▲▼** at the bottom of the left pane reorder within the same level (folders move
 with their contents). **Duplicate** lets you set the name and body on the spot, so
@@ -87,8 +99,9 @@ Everything is documented inside the app itself (`?` button or <kbd>F1</kbd>).
 ### Formatted text (tags)
 
 PSD text carries its formatting as a sequence of runs (consecutive characters
-sharing one style), which cannot be expressed in a CSV cell or a plain text area.
-The runs are therefore folded into the body as tags.
+sharing one style), which cannot be expressed in a CSV cell. The runs are
+therefore folded into the body as tags. **The editor shows those tags as `◆`
+chips**, so the notation itself only shows up in CSV and the API.
 
 ```
 text test [color=#F6005D]テキスト
@@ -115,7 +128,13 @@ translator to accidentally break.
 
 - **Uniformly styled text carries no tags at all**, so ordinary translation work
   never has to deal with them
-- The base is the style of the first run; tags only appear where the style differs
+- The base is the style of the first run **as the file was loaded**, and it does
+  not move as you edit: `[/color]` always means "the colour this file was opened
+  with". Changing the initial formatting lays a mark over that base, which is why
+  "Revert" always gets you back
+- Formatting a range does not produce a closing tag either — it places a mark at
+  the end that **restores the formatting that was in effect there**, so it cannot
+  break whatever the surrounding text had
 - Tags that cannot be understood stay as plain characters, so the body is never lost
 - The generated form is **stable across round trips** — edit, save, reopen and you
   get the same string back
@@ -183,7 +202,7 @@ UI through the URL).
 | `POST /api/psd/open` | Open `{path}`. Returns document info, tree and text list |
 | `GET  /api/psd/info` | Summary of the open document (path, layer count, unsaved count) |
 | `GET  /api/psd/tree` | Every layer (index / lyid / parent / depth / kind / rect) |
-| `GET  /api/psd/texts` | Text layers (body, font, alignment, dirty) |
+| `GET  /api/psd/texts` | Text layers (body, base style — font/size/colour/B/I/U —, alignment, dirty) |
 | `POST /api/psd/text` | `{index, text}` replaces the body |
 | `POST /api/psd/revert` | `{index}` returns the layer to the text as loaded |
 | `POST /api/psd/name` | `{index, name}` renames the layer |
@@ -210,6 +229,9 @@ appserve's standard `/api/fs/*` routes are available as well, for picking files.
 | `.b state` | Inspect the UI state |
 | `.b call select 3` | Move the selection |
 | `.b call lang en` | Switch the display language |
+| `.b call marks` | Inspect the formatting marks (base, body, mark list) |
+| `.b call marksel base` | Choose what the panel edits (`{"mark":2}` / `{"range":[5,9]}` / `{"at":10}`) |
+| `.b call fmt {"color":"#FF0000"}` | Format the current target (a value / `null` = back to base / `"keep"` = drop the spec) |
 
 See appserve's [docs/REPL.md](https://github.com/wamsoft/appserve/blob/master/docs/REPL.md).
 
@@ -238,7 +260,7 @@ pushing a tag makes GitHub Actions publish a release.
 ```bash
 cmake --build --preset windows-rel
 cpack --config build/windows/CPackConfig.cmake -C Release -B dist   # build locally
-git tag v0.1.0 && git push origin v0.1.0                            # publish
+git tag v0.1.1 && git push origin v0.1.1                            # publish
 ```
 
 The distributable is just `psdtext.exe` plus README and LICENSE. The UI is embedded

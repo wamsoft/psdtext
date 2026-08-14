@@ -7,8 +7,8 @@
 	<a href="#h-overview">What this is</a>
 	<a href="#h-screen">The screen</a>
 	<a href="#h-basic">Basic flow</a>
+	<a href="#h-marks">Formatting (marks)</a>
 	<a href="#h-tags">Formatting tags</a>
-	<a href="#h-align">Alignment, font, size</a>
 	<a href="#h-layers">Working with layers</a>
 	<a href="#h-csv">Bulk editing with CSV</a>
 	<a href="#h-save">How saving works</a>
@@ -51,9 +51,11 @@
 		</dd>
 		<dt>Right: Edit</dt>
 		<dd>
-			The body of the selected text layer. Formatting is expressed as tags
-			inside the text. Nothing reaches the document until you press
-			<b>Apply</b>.
+			Position, formatting and body of the selected text layer. The body carries
+			a <b>◆ chip (formatting mark)</b> wherever the formatting changes, and the
+			panel above edits the mark the caret belongs to. Changes to the text itself
+			reach the document when you press <b>Apply</b>; changes made in the
+			formatting panel are applied <b>immediately</b>.
 		</dd>
 	</dl>
 </section>
@@ -74,11 +76,75 @@
 	</p>
 </section>
 
+<section id="h-marks">
+	<h2>Formatting (marks)</h2>
+	<p>
+		Formatting is expressed with <b>marks</b>. A mark says "change the formatting
+		from here on", and sits in the body as a <span class="mk-sample">◆</span>
+		chip. Tags never appear in the edit box (they are how CSV and the file itself
+		carry the same information).
+	</p>
+	<p class="tip">
+		What you edit is <b>the mark the caret belongs to</b>. Put the caret anywhere
+		in the body and the mark in effect there is selected, with the panel above
+		showing its formatting. <b>With no mark before the caret you are on the
+		base</b>, and changing it changes everything that has no explicit formatting.
+	</p>
+	<dl>
+		<dt>Base (before any mark)</dt>
+		<dd>
+			The initial formatting of the whole layer. Font, size, colour, B/I/U and
+			alignment are simply chosen, and they apply to <b>everything that has no
+			explicit formatting</b> — which is all most edits ("make this layer bigger
+			/ another colour") ever need. A change to the base is not shown as a chip,
+			since the start of the body is always the base.
+		</dd>
+		<dt>Marks in the body</dt>
+		<dd>
+			Click a chip (or put the caret after it) to edit that mark attribute by
+			attribute, each one set to <b>keep / back to base / set</b>. An attribute
+			left at "keep" simply carries on from whatever came before.
+			<b>Remove mark</b>, or <kbd>Backspace</kbd> over the chip, takes it out
+			entirely — a chip behaves like a single character.
+		</dd>
+		<dt>＋Mark</dt>
+		<dd>
+			Puts a new mark at the caret. It is committed as soon as you set something
+			on it.
+		</dd>
+		<dt>Formatting a range</dt>
+		<dd>
+			<b>Select a range</b> in the edit box and the panel switches to editing
+			that selection. What you set is inserted at the start of the range, and a
+			mark that <b>restores the previous formatting</b> is placed at the end.
+			Nothing is ever "closed", so it cannot break whatever formatting the
+			surrounding text had.
+			<pre>colour part of a pink paragraph red, and the mark at the end
+of the range goes back to pink — not back to the base</pre>
+		</dd>
+		<dt>Choosing a font</dt>
+		<dd>
+			On the base you simply <b>pick one from the list</b>. On a mark or a range
+			you <b>press the font button and choose from the list</b>, which shows
+			"fonts this PSD uses" first and "fonts on this PC" below. The base's
+			<code>＋</code> opens the same list.
+			<b>Photoshop needs the same font as well</b>; without it Photoshop
+			substitutes another one.
+		</dd>
+	</dl>
+	<p class="tip">
+		Changes made in the formatting panel go into the document <b>straight away</b>
+		(the preview follows immediately). "Apply" is only for text you typed.
+		Either way, "Revert" takes the layer back to how it was loaded.
+	</p>
+</section>
+
 <section id="h-tags">
 	<h2>Formatting tags</h2>
 	<p>
-		PSD text carries its formatting as a sequence of <i>runs</i> (consecutive
-		characters sharing one style). Those runs are folded into the body as tags.
+		Marks are really just tags embedded in the body. The edit box hides them, but
+		<b>the <code>text</code> column of a CSV carries this form</b> — so this is
+		the notation to use when editing formatting in bulk in a spreadsheet.
 	</p>
 	<pre>This is [b]bold[/b] and [size=96]large[size=48]text
 [color=#FF0000]red text[color=#000000]back to black
@@ -104,9 +170,15 @@
 		<tr><td><code>[[</code></td><td>A literal <code>[</code></td></tr>
 	</table>
 	<p>
-		The base is the style of the first run, and tags only appear where the style
-		differs from it. <b>Uniformly styled text therefore carries no tags at
-		all</b>, so ordinary translation work never has to deal with them.
+		The base is the style of the first run <b>as the file was loaded</b>, and it
+		never moves as you edit: <code>[/color]</code> always means "the colour this
+		file had when it was opened". Changing the initial formatting means laying a
+		mark over that base — which is why "Revert" can always get you back.
+	</p>
+	<p>
+		Tags only appear where the style differs from the base. <b>Uniformly styled
+		text therefore carries no tags at all</b>, so ordinary translation work never
+		has to deal with them.
 	</p>
 	<p>
 		Tags that cannot be understood are kept as plain characters, so the body is
@@ -115,32 +187,6 @@
 	</p>
 </section>
 
-<section id="h-align">
-	<h2>Alignment, font, size</h2>
-	<dl>
-		<dt>Alignment buttons</dt>
-		<dd>
-			Applied to the paragraph directly, so you do not have to write the tag
-			yourself. Put <code>[align=...]</code> in the body when different
-			paragraphs need different alignment.
-		</dd>
-		<dt>Font</dt>
-		<dd>
-			The candidates are <b>the fonts the PSD already carries</b>. Use
-			<code>＋</code> to add one from the fonts installed on this PC. Picking a
-			font inserts <code>[font=...]</code> around the selection.
-			<b>Photoshop needs the same font as well</b>; without it Photoshop
-			substitutes another one.
-		</dd>
-		<dt>Size / B / I / U</dt>
-		<dd>
-			Select a range in the edit box and press a button to wrap it in tags.
-			With nothing selected, the tag applies from the cursor onward.
-			If the selection reaches into the middle of a tag, it is snapped outside
-			first so the tag is not broken.
-		</dd>
-	</dl>
-</section>
 
 <section id="h-layers">
 	<h2>Working with layers</h2>
