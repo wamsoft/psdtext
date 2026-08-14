@@ -1,243 +1,258 @@
 # psdtext
 
-PSD のテキストレイヤを一覧して書き換えるローカルツール。
-Photoshop を開かずに、翻訳・校正・表記ゆれ修正といった**テキストの再編集**を行う。
+*[日本語版はこちら / Japanese version](README_ja.md)*
 
-- レイヤツリーとテキスト一覧を並べて表示し、その場で本文を編集
-- **CSV 書き出し / 読み込み**で一括置換 (翻訳やレビューの外注に使える)
-- 編集していないレイヤはバイト単位でそのまま保存される
-- ブラウザが UI。exe 1 つで動き、閉じれば自動で終了する
+A local tool for listing and rewriting the text layers of a PSD.
+It exists so you can do the **text re-editing** — translation, proofreading,
+fixing inconsistent wording — without opening Photoshop.
+
+- Layer tree and composite preview side by side; edit the body in place
+- **CSV export / import** for bulk replacement (handy for outsourcing translation or review)
+- Layers you do not edit are written back byte for byte
+- The browser is the UI. One executable, and it exits on its own when you close it
 
 ```
-psdtext                  ファイル選択から始める
-psdtext foo.psd          起動と同時に開く
-psdtext foo.psd --repl   REPL つき (エージェント / 自動テスト用)
+psdtext                  start from the file picker
+psdtext foo.psd          open a file straight away
+psdtext foo.psd --repl   with a REPL (for agents and automated tests)
 ```
 
-構成:
+Built from:
 
 | | |
 |---|---|
-| UI / フレームワーク | [wamsoft/appserve](https://github.com/wamsoft/appserve) — ローカル HTTP サーバ + ブラウザ UI |
-| PSD 読み書き | [wamsoft/psdparse](https://github.com/wamsoft/psdparse) — pure C++17 PSD reader/writer |
+| UI / framework | [wamsoft/appserve](https://github.com/wamsoft/appserve) — local HTTP server + browser UI |
+| PSD read/write | [wamsoft/psdparse](https://github.com/wamsoft/psdparse) — pure C++17 PSD reader/writer |
 
 ---
 
-## 画面
+## The screen
 
-| ペイン | 役割 |
+| Pane | Role |
 |---|---|
-| 左 | レイヤツリー。階層の折り畳みと、フォルダ / 個別レイヤの表示 ON/OFF |
-| 中央 | 表示 ON/OFF を反映した**合成プレビュー** |
-| 右 | 選択したテキストレイヤの編集 (書式・行揃え・フォント) |
+| Left | Layer tree. Folding, plus visibility toggles for folders and individual layers |
+| Centre | **Composite preview** that follows those visibility toggles |
+| Right | Editing for the selected text layer (formatting, alignment, font, position) |
 
-表示 ON/OFF は**プレビュー専用**で PSD には保存されない。「元に戻す」で PSD が
-持っている表示状態へ戻る。
+Visibility toggles are **preview-only** and never reach the PSD. "Reset" goes back
+to the visibility stored in the file.
 
-合成はブラウザの canvas 上で行うので、ON/OFF の切り替えはサーバ往復なしで
-即座に反映される。ブレンドモードと不透明度、クリッピングレイヤに対応している
-(グループのブレンド・調整レイヤ・レイヤ効果は未対応)。最終確認は Photoshop で
-行う前提の**作業用プレビュー**という位置づけで、その旨と、開いている PSD で
-実際に影響が出ている箇所は画面下に常時表示される。
+Compositing happens on a canvas in the browser, so toggling is instant with no
+round trip to the server. Blend modes, opacity and clipping layers are handled
+(group blending, adjustment layers and layer effects are not). It is a
+**working preview** — the limits, and whichever of them actually affect the PSD
+you have open, are shown permanently under the canvas.
 
-使い方は本体内に組み込んである (`?` ボタン / <kbd>F1</kbd>)。
+Zoom at 100% is **true 1:1** (one image pixel per physical screen pixel); it does
+not double in size on a display running at 200% scaling.
 
-ズームの 100% は**実ドット等倍** (画像 1px = 画面 1 デバイス px)。システムの
-表示スケールが 200% でも倍サイズにならないよう逆補正している。
+The UI is available in English and Japanese. It follows the browser language by
+default and can be switched from the toolbar.
 
-### テキストの仮描画
+### Redrawn text
 
-PSD 内蔵のテキスト画像は Photoshop で開き直すまで更新されないので、**編集した
-テキストレイヤは canvas に描き直して重ねる**(「テキスト仮描画」で切替)。
-組版 (字詰め / 禁則 / 縦書き / 変形) までは再現しないので、内容と位置の確認用。
-フォントもこの PC に入っているものしか使えない (無い場合は編集欄に注記が出る)。
+The text raster inside a PSD is not updated until Photoshop reopens the file, so
+**edited text layers are redrawn on the canvas** instead (toggle "Redraw text").
+Typesetting — kerning, line-breaking rules, vertical text, transforms — is not
+reproduced, so treat it as a check of content and position. Only fonts installed
+on this PC can be used; the edit pane says so when one is missing.
 
-## 使い方
+## Using it
 
-1. `psdtext` を起動するとブラウザ (Edge / Chrome のアプリモード) が開く
-2. 「開く…」で PSD を選ぶ
-3. 左のツリーからテキストレイヤを選び、右のペインで編集
-4. **反映** (Ctrl+Enter) で文書に取り込み、**保存** (Ctrl+S) でファイルへ書き出す
+1. Start `psdtext` and a browser opens (Edge / Chrome in app mode)
+2. "Open…" and pick a PSD
+3. Select a text layer in the tree on the left and edit it on the right
+4. **Apply** (Ctrl+Enter) to put it into the document, **Save** (Ctrl+S) to write the file
 
-書式ボタン (B / I / U / フォント / サイズ) は、編集欄で選んだ範囲にタグを
-入れる。行揃えボタンは段落全体に効く。
+Saving over the original keeps it as `<name>.psd.bak` (an existing `.bak` is never
+overwritten). Enter a path in the save dialog to save under a different name.
 
-左ペイン下の **▲▼** は同じ階層の中での並べ替え (フォルダは中身ごと動く)。
-**複製** は名前と本文をその場で決められるので、本文を書き換えれば実質
-「新規テキストレイヤの追加」になる。
+The formatting buttons (B / I / U / font / size) insert tags around the selection
+in the edit box. The alignment buttons apply to the whole paragraph.
 
-テキストレイヤの**位置と流し込み枠**は、右ペインの数値欄・プレビュー上の
-ドラッグ・矢印キー (Shift で 10px) のどれでも変えられる。位置を動かすと
-PSD 内蔵のラスタも一緒に動くので、Photoshop で開き直すまでの間も見た目が
-ずれない。
+**▲▼** at the bottom of the left pane reorder within the same level (folders move
+with their contents). **Duplicate** lets you set the name and body on the spot, so
+rewriting the body makes it, in effect, "add a new text layer".
 
-**レイヤ名の変更**は、ツリーの名前をダブルクリックするか、選択して `F2`
-(または「名前」ボタン)。Enter で確定、Escape で取り消し。テキストレイヤ以外
-にも使える。
+Text layer **position and text box** can be changed from the number fields on the
+right, by dragging on the preview, or with the arrow keys (Shift for 10px). Moving
+a layer moves the raster stored in the PSD along with it, so nothing looks
+displaced before Photoshop reopens the file.
 
-保存時、元ファイルは `<name>.psd.bak` へ退避される (既存の `.bak` は上書きしない)。
-別名で保存したい場合は保存ダイアログでパスを入れる。
+**Renaming a layer**: double-click the name in the tree, or select it and press
+`F2` (or the "Rename" button). Enter commits, Escape cancels. Works on any layer.
 
-### CSV での一括編集
+Everything is documented inside the app itself (`?` button or <kbd>F1</kbd>).
 
-「CSV 書き出し」で次の形式のファイルが得られる (UTF-8 BOM 付き / CRLF なので
-Excel でそのまま開ける):
+### Formatted text (tags)
 
-```csv
-lyid,path,text
-2,"dialog/名前","こんにちは"
-4,"dialog/本文","1 行目
-2 行目"
-```
-
-- `text` 列のセル内改行がそのまま PSD の段落区切りになる
-- 照合は **`lyid` (Photoshop の永続レイヤ ID) が主キー**。レイヤの並べ替えや
-  改名をしても対応が壊れない。`lyid` が無い行は `path` 列で照合する
-  (同名レイヤが複数あるときは曖昧なので未解決として報告する)
-- 列の順序は自由で、余分な列があっても無視される
-
-「CSV 読み込み」は最初に**確認だけ**を行い、変更 / 同一 / 未解決の件数と内訳を
-表示する。内容を確認してから「反映する」を押すと文書へ取り込まれる
-(この時点ではまだメモリ上。ファイルへ書くのは「保存」)。
-
-### 書式付きテキスト (タグ表現)
-
-PSD のテキストレイヤは「ラン (連続する文字に同じ書式)」の並びで書式を持つが、
-CSV のセルや素の編集欄には構造を入れられない。そこで本文の中にタグを埋め込む
-形で 1 本の文字列に畳んでいる。
+PSD text carries its formatting as a sequence of runs (consecutive characters
+sharing one style), which cannot be expressed in a CSV cell or a plain text area.
+The runs are therefore folded into the body as tags.
 
 ```
 text test [color=#F6005D]テキスト
-[align=right][b]TEST[font=SourceHanSansJP-Normal][size=33.3333][color=#0017F6][/b]フォント[size=50]変更
+[align=right][b]TEST[font=SourceHanSansJP-Normal][size=33.3333][color=#0017F6][/b]フォント変更
 [align=center][font=HGPKyokashotai]別のフォント
 ```
 
-**閉じタグは無い。** タグはその位置から先の状態を変え、次の指定まで効き続ける。
-PSD のランは入れ子ではなく平坦な並びなので、この形が構造にそのまま対応し、
-翻訳者が入れ子を壊す事故も起きない。
+**There are no closing tags.** A tag changes the state from that point onward and
+stays in effect until the next one. PSD runs are a flat sequence rather than a
+nested structure, so this maps directly onto it and there is no nesting for a
+translator to accidentally break.
 
-| タグ | 効果 |
+| Tag | Effect |
 |---|---|
-| `[font=名前]` | そこから先のフォント。PSD に無い名前は FontSet へ追記される |
-| `[size=48]` | 文字サイズ (px)。小数可 |
-| `[color=#FF0000]` | 文字色 |
-| `[b]` `[i]` `[u]` | 太字 / 斜体 / 下線を **on** |
-| `[/b]` `[/i]` `[/u]` | 同じく **off** |
-| `[/font]` `[/size]` `[/color]` | その属性を基準 (先頭ランの書式) へ戻す |
-| `[reset]` | 全属性を基準へ戻す |
-| `[align=left\|right\|center]` | 段落の行揃え。段落の先頭に置く |
-| `[[` | リテラルの `[` |
+| `[font=name]` | Font from here on. A name the PSD does not have is appended to its FontSet |
+| `[size=48]` | Font size in px (decimals allowed) |
+| `[color=#FF0000]` | Text colour |
+| `[b]` `[i]` `[u]` | Bold / italic / underline **on** |
+| `[/b]` `[/i]` `[/u]` | The same, **off** |
+| `[/font]` `[/size]` `[/color]` | Return that attribute to the base |
+| `[reset]` | Return everything to the base |
+| `[align=left\|right\|center]` | Paragraph alignment; put it at the start of the paragraph |
+| `[[` | A literal `[` |
 
-- **書式が一様なテキストにはタグが 1 つも付かない**ので、普通の翻訳作業では
-  タグを意識しなくてよい
-- 基準は「先頭ランの書式」。そこから変わる箇所だけタグが出る
-- 未知のタグはそのままの文字として残る (壊れた入力で本文を失わない)
-- 生成された表現は**往復で完全に安定** (編集 → 保存 → 開き直しで同じ文字列)
+- **Uniformly styled text carries no tags at all**, so ordinary translation work
+  never has to deal with them
+- The base is the style of the first run; tags only appear where the style differs
+- Tags that cannot be understood stay as plain characters, so the body is never lost
+- The generated form is **stable across round trips** — edit, save, reopen and you
+  get the same string back
 
-CSV の `text` 列にもこの形式が入るので、Excel 上で書式ごと一括編集できる。
+The CSV `text` column uses the same format, so formatting can be edited in bulk
+from Excel.
+
+### Bulk editing with CSV
+
+**Export CSV** produces this (UTF-8 with BOM and CRLF, so Excel opens it directly):
+
+```csv
+lyid,path,text
+2,"dialog/name","Hello"
+4,"dialog/body","first line
+second line"
+```
+
+- A newline inside the `text` cell becomes a paragraph break
+- Layers are matched by **`lyid` (Photoshop's persistent layer ID)**, so
+  reordering or renaming layers does not break the mapping. Rows without an
+  `lyid` fall back to the `path` column (reported as unresolved when the name is
+  ambiguous)
+- Column order is free and extra columns are ignored
+
+**Import CSV** first performs a **check only** pass and reports how many rows
+would change, stay identical, or fail to resolve. Press "Apply" once the report
+looks right (that only touches the in-memory document — the file is written by
+"Save").
 
 ---
 
-## ビルド
+## Building
 
-CMake 3.16+ と C++17 コンパイラだけあればよい。依存 (appserve / psdparse /
-zlib) は CMake が自動で取得する。
+All you need is CMake 3.16+ and a C++17 compiler. The dependencies (appserve,
+psdparse, zlib) are fetched by CMake.
 
 ```bash
-cmake --preset windows          # MSVC (Developer Command Prompt から)
+cmake --preset windows          # MSVC (from a Developer Command Prompt)
 cmake --build --preset windows-rel
 ```
 
-appserve や psdparse に手を入れながら開発する場合、`../appserve` /
-`../psdparse` にチェックアウトがあれば**自動でそちらが使われる** (取得より優先)。
-明示するときは:
+If you are working on appserve or psdparse at the same time, a checkout at
+`../appserve` / `../psdparse` is **picked up automatically** in preference to
+fetching. To be explicit:
 
 ```bash
 cmake --preset windows -DPSDTEXT_APPSERVE_DIR=D:/test/appserve \
                        -DPSDTEXT_PSDPARSE_DIR=D:/test/psdparse
 ```
 
-`web/` を編集した場合はブラウザをリロードするだけで反映される
-(開発中はカレント/exe 隣の `web/` が、リリース時は exe 埋め込み zip が使われる)。
+Edits under `web/` need only a browser reload (during development the `web/`
+directory next to the current directory or the executable wins; a release build
+uses the zip embedded in the executable).
 
 ---
 
-## API (派生ツール / 自動化向け)
+## API (for derived tools and automation)
 
-すべて `X-App-Token` ヘッダが要る (起動時に払い出され、UI へは URL 経由で渡る)。
+Every route requires the `X-App-Token` header (issued at startup and handed to the
+UI through the URL).
 
-| ルート | 説明 |
+| Route | Description |
 |---|---|
-| `POST /api/psd/open` | `{path}` を開く。文書情報 + ツリー + テキスト一覧を返す |
-| `GET  /api/psd/info` | 開いている文書の概要 (パス / レイヤ数 / 未保存件数) |
-| `GET  /api/psd/tree` | 全レイヤ (index / lyid / parent / depth / kind / rect) |
-| `GET  /api/psd/texts` | テキストレイヤ一覧 (本文 / フォント / 行揃え / dirty) |
-| `POST /api/psd/text` | `{index, text}` で本文を差し替える |
-| `POST /api/psd/revert` | `{index}` を読み込み時の内容へ戻す |
-| `POST /api/psd/name` | `{index, name}` でレイヤ名を変更 |
-| `POST /api/psd/align` | `{index, paragraph?, align}` で行揃えを変更 (paragraph 省略で全段落) |
-| `POST /api/psd/duplicate` | `{index, name?, text?}` でレイヤを複製 (本文を変えれば新規追加) |
-| `POST /api/psd/move` | `{index, direction}` で同じ階層内をひとつ上/下へ (フォルダは中身ごと) |
-| `POST /api/psd/place` | `{index, dx, dy}` で移動 / `{index, width, height}` で流し込み枠 |
-| `POST /api/psd/save` | `{path?, backup?}` で保存 (path 省略で上書き) |
-| `GET  /api/psd/image?index=N` | レイヤの見た目を生 RGBA で返す (`X-Image-Width/Height`) |
-| `GET  /api/psd/export` | テキストを CSV で書き出す |
-| `POST /api/psd/import` | CSV を取り込む。`?apply=0` で確認のみ |
+| `POST /api/psd/open` | Open `{path}`. Returns document info, tree and text list |
+| `GET  /api/psd/info` | Summary of the open document (path, layer count, unsaved count) |
+| `GET  /api/psd/tree` | Every layer (index / lyid / parent / depth / kind / rect) |
+| `GET  /api/psd/texts` | Text layers (body, font, alignment, dirty) |
+| `POST /api/psd/text` | `{index, text}` replaces the body |
+| `POST /api/psd/revert` | `{index}` returns the layer to the text as loaded |
+| `POST /api/psd/name` | `{index, name}` renames the layer |
+| `POST /api/psd/align` | `{index, paragraph?, align}` changes alignment (all paragraphs if omitted) |
+| `POST /api/psd/duplicate` | `{index, name?, text?}` duplicates a layer (rewrite the body to add one) |
+| `POST /api/psd/move` | `{index, direction}` moves one step up/down within the level (folders move with their contents) |
+| `POST /api/psd/place` | `{index, dx, dy}` to move / `{index, width, height}` for the text box |
+| `POST /api/psd/save` | `{path?, backup?}` saves (overwrites when path is omitted) |
+| `GET  /api/psd/image?index=N` | The layer as raw RGBA (`X-Image-Width/Height`) |
+| `GET  /api/psd/export` | Export the text as CSV |
+| `POST /api/psd/import` | Import a CSV. `?apply=0` checks only |
 
-ファイル選択用に appserve 標準の `/api/fs/*` も使える。
+appserve's standard `/api/fs/*` routes are available as well, for picking files.
 
 ### REPL
 
-`--repl` (対話) / `--replfile=DIR` (エージェント) / `POST /_app/repl` (curl)。
+`--repl` (interactive) / `--replfile=DIR` (agents) / `POST /_app/repl` (curl).
 
-| コマンド | 説明 |
+| Command | Description |
 |---|---|
-| `.psd` | 開いている文書の情報 |
-| `.texts` | テキストレイヤ一覧 (`*` が未保存) |
-| `.settext <index> <text>` | 本文を差し替える |
-| `.b state` | ブラウザ側 UI の状態を覗く |
-| `.b call select 3` | UI の選択を動かす |
+| `.psd` | Information about the open document |
+| `.texts` | List the text layers (`*` = unsaved) |
+| `.settext <index> <text>` | Replace a body |
+| `.b state` | Inspect the UI state |
+| `.b call select 3` | Move the selection |
+| `.b call lang en` | Switch the display language |
 
-詳細は appserve の [docs/REPL.md](https://github.com/wamsoft/appserve/blob/master/docs/REPL.md)。
+See appserve's [docs/REPL.md](https://github.com/wamsoft/appserve/blob/master/docs/REPL.md).
 
 ---
 
-## 制限
+## Limits
 
-- 対象は**既存のテキストレイヤの本文**。新規テキストレイヤの追加は行わない
-- テキストレイヤの追加は既存レイヤの複製が土台 (Photoshop が受け付ける構造を
-  確実に保つため)。書式と位置は複製元を引き継ぎ、テキストレイヤが 1 枚も無い
-  PSD には追加できない
-- 位置と流し込み枠を変えられるのはテキストレイヤだけ。画像レイヤの移動や
-  拡大縮小は Photoshop 側で行う
-- テキストの回転・変形はできない (変換行列のうち移動成分だけを扱う)
-- 重ね順の変更は同じ階層の中だけ。フォルダへの出し入れはできない
-- 合成プレビュー画像は編集後も古いまま。Photoshop で開き直すと再合成される
-- テキストの流し込み枠 (bounds) は変えないので、長くすると枠からはみ出る
+- Adding a text layer is built on duplicating an existing one (so that the
+  structure Photoshop accepts is preserved exactly). Formatting and position are
+  inherited from the source, and a PSD without a single text layer cannot get one
+- Position and text box can be changed for text layers only; moving or scaling
+  image layers is done in Photoshop
+- Text cannot be rotated or transformed (only the translation part of the matrix)
+- Reordering is limited to one level; layers cannot be moved in or out of folders
+- The composite preview is approximate: adjustment layers, layer effects and group
+  blending are not applied, and blend modes the browser lacks are approximated
+- The composite thumbnail Photoshop stores in the file stays stale after saving
+- Resizing the text box only reflows paragraph text; for point text Photoshop
+  rebuilds the box from the glyphs
 
-## 配布とリリース
+## Packaging and releases
 
-`appserve_package()` (appserve 提供) で zip / インストーラを作る。タグを打つと
-GitHub Actions が Release を自動生成する。
+`appserve_package()` (provided by appserve) builds the zip and the installer, and
+pushing a tag makes GitHub Actions publish a release.
 
 ```bash
 cmake --build --preset windows-rel
-cpack --config build/windows/CPackConfig.cmake -C Release -B dist   # 手元で作る
-git tag v0.1.0 && git push origin v0.1.0                            # リリースする
+cpack --config build/windows/CPackConfig.cmake -C Release -B dist   # build locally
+git tag v0.1.0 && git push origin v0.1.0                            # publish
 ```
 
-配布物は `psdtext.exe` + README + LICENSE の 3 つだけ。UI は exe に埋め込まれ、
-依存 (appserve / psdparse / zlib) は静的リンクされるので DLL は要らない。
+The distributable is just `psdtext.exe` plus README and LICENSE. The UI is embedded
+in the executable and the dependencies (appserve / psdparse / zlib) are linked
+statically, so there are no DLLs.
 
-リリースの再現性を確保したいときは依存をタグに固定する:
+To make a release reproducible, pin the dependencies to tags:
 
 ```bash
 cmake -B build -DPSDTEXT_APPSERVE_TAG=v0.1.0 -DPSDTEXT_PSDPARSE_TAG=v0.8.1
 ```
 
-詳細は appserve の [docs/RELEASE.md](https://github.com/wamsoft/appserve/blob/master/docs/RELEASE.md)。
+See appserve's [docs/RELEASE.md](https://github.com/wamsoft/appserve/blob/master/docs/RELEASE.md).
 
-
-## ライセンス
+## License
 
 MIT

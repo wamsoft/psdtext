@@ -525,3 +525,10 @@ button.linkish:hover { background: none; filter: brightness(1.2); }
 #placeBar .num { width: 62px; }
 #stage.dragging { cursor: grabbing; }
 #stage { cursor: default; }
+
+/*--- 言語切り替え -----------------------------------------------------*/
+select.lang {
+	padding: 3px 4px;
+	font-size: 12px;
+	min-width: 62px;
+}

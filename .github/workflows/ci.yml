@@ -47,6 +47,14 @@ jobs:
           echo "could not find the built executable:" && find build -maxdepth 2 -type f -name 'psdtext*'
           exit 1
 
+      - name: Fetch a PSD with text layers
+        shell: bash
+        run: |
+          # psdparse のテスト資材 (テキストレイヤ / 複数フォント / 縦書き入り)
+          mkdir -p testdata
+          curl -sfL -o testdata/textboxsample.psd             https://raw.githubusercontent.com/wamsoft/psdparse/master/tests/data/textboxsample.psd
+          ls -la testdata/
+
       - name: Smoke test
         shell: bash
         run: |
@@ -68,15 +76,14 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' $B/api/psd/texts)" = "409"
           echo "no-document -> 409 ok"
 
-          # テキストレイヤ入りの PSD はテスト資材として公開していないので、
-          # testdata/ に置かれているときだけ深いテストまで走らせる。
-          # (ローカルでは psdparse の tests/data/textboxsample.psd などを置く)
+          # 上の手順で取得した PSD を使う。ローカルで走らせるときは
+          # testdata/ に任意のテキストレイヤ入り PSD を置けばよい。
           PSD=$(ls testdata/*.psd 2>/dev/null | head -1 || true)
           if [ -z "$PSD" ]; then
-            echo "--- testdata/*.psd が無いので PSD を使うテストは省略 ---"
+            echo "::error::testdata/*.psd が無い (取得に失敗した?)"
             curl -sf -X POST -d '.quit' $B/_app/repl
             wait %1 || true
-            exit 0
+            exit 1
           fi
           echo "--- PSD を開く ($PSD) ---"
           printf "{\"path\":\"%s\"}" "$PWD/$PSD" > open.json

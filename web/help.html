@@ -1,301 +1,317 @@
 <!--
-  内蔵ヘルプ (index.html のモーダルへ読み込まれる断片)。
-  web/ ごと exe に埋め込まれるので、配布物単体でも表示できる。
+  Built-in help (loaded into the modal in index.html).
+  It ships inside the executable together with the rest of web/, so it is
+  available even from a standalone build. Japanese version: help_ja.html
 -->
 <nav class="help-toc">
-	<a href="#h-overview">これは何か</a>
-	<a href="#h-screen">画面の見かた</a>
-	<a href="#h-basic">基本の流れ</a>
-	<a href="#h-tags">書式タグ</a>
-	<a href="#h-align">行揃え・フォント・サイズ</a>
-	<a href="#h-layers">レイヤの操作</a>
-	<a href="#h-csv">CSV で一括編集</a>
-	<a href="#h-save">保存の仕組み</a>
-	<a href="#h-keys">ショートカット</a>
-	<a href="#h-limits" class="warn">できないこと</a>
-	<a href="#h-auto">自動化 (REPL)</a>
+	<a href="#h-overview">What this is</a>
+	<a href="#h-screen">The screen</a>
+	<a href="#h-basic">Basic flow</a>
+	<a href="#h-tags">Formatting tags</a>
+	<a href="#h-align">Alignment, font, size</a>
+	<a href="#h-layers">Working with layers</a>
+	<a href="#h-csv">Bulk editing with CSV</a>
+	<a href="#h-save">How saving works</a>
+	<a href="#h-keys">Shortcuts</a>
+	<a href="#h-limits" class="warn">What it cannot do</a>
+	<a href="#h-auto">Automation (REPL)</a>
 </nav>
 
 <section id="h-overview">
-	<h2>これは何か</h2>
+	<h2>What this is</h2>
 	<p>
-		PSD のテキストレイヤを一覧して書き換えるツール。Photoshop を開かずに、
-		翻訳・校正・表記ゆれ修正といった<b>テキストの再編集</b>を行う。
+		A tool for listing and rewriting the text layers of a PSD. It is meant for
+		<b>re-editing text</b> — translation, proofreading, fixing inconsistent
+		wording — without opening Photoshop.
 	</p>
 	<p>
-		<b>編集していないレイヤはバイト単位でそのまま保存される</b>ので、
-		画像レイヤや効果には一切影響しない。
+		<b>Layers you do not edit are written back byte for byte</b>, so image
+		layers and effects are left completely untouched.
 	</p>
 </section>
 
 <section id="h-screen">
-	<h2>画面の見かた</h2>
+	<h2>The screen</h2>
 	<dl>
-		<dt>左: レイヤ</dt>
+		<dt>Left: Layers</dt>
 		<dd>
-			PSD のレイヤ構造。<code>▾</code> で階層の折り畳み、<code>👁</code> で表示の
-			ON/OFF。フォルダの <code>👁</code> は配下ごと効く。
-			<b>この ON/OFF はプレビュー専用で PSD には保存されない</b>
-			(「元に戻す」で PSD が持っている表示状態へ戻る)。
-			<code>T</code> のアイコンが付いているのがテキストレイヤ。
-			<code>●</code> は未保存の変更あり。
+			The layer structure of the PSD. <code>▾</code> folds a group and
+			<code>👁</code> toggles visibility; a folder's <code>👁</code> applies to
+			everything inside it.
+			<b>These toggles are preview-only and are never saved into the PSD</b>
+			("Reset" goes back to the visibility stored in the file).
+			Layers marked <code>T</code> are text layers, and <code>●</code> means
+			there are unsaved changes.
 		</dd>
-		<dt>中央: プレビュー</dt>
+		<dt>Centre: Preview</dt>
 		<dd>
-			表示 ON/OFF を反映した合成結果。<b>100% は実ドット等倍</b>
-			(画像 1px = 画面 1 デバイス px) で、システムの表示スケールが 200% でも
-			倍サイズにはならない。「全体」でウィンドウに収まる倍率へ。
+			The composite of everything currently visible. <b>100% is true 1:1</b>
+			(one image pixel per physical screen pixel) — it does not double in size
+			on a display running at 200% scaling. "Fit" scales it to the window.
 		</dd>
-		<dt>右: 編集</dt>
+		<dt>Right: Edit</dt>
 		<dd>
-			選択したテキストレイヤの本文。書式は本文中のタグで表す。
-			<b>反映</b>を押すまで文書には取り込まれない。
+			The body of the selected text layer. Formatting is expressed as tags
+			inside the text. Nothing reaches the document until you press
+			<b>Apply</b>.
 		</dd>
 	</dl>
 </section>
 
 <section id="h-basic">
-	<h2>基本の流れ</h2>
+	<h2>Basic flow</h2>
 	<ol>
-		<li><b>開く…</b> で PSD を選ぶ (起動時に <code>psdtext foo.psd</code> でも可)</li>
-		<li>左のツリーからテキストレイヤを選ぶ</li>
-		<li>右のペインで本文を書き換える</li>
-		<li><b>反映</b> (<kbd>Ctrl</kbd>+<kbd>Enter</kbd>) で文書へ取り込む</li>
-		<li><b>保存</b> (<kbd>Ctrl</kbd>+<kbd>S</kbd>) でファイルへ書き出す</li>
+		<li><b>Open…</b> and pick a PSD (or start with <code>psdtext foo.psd</code>)</li>
+		<li>Select a text layer in the tree on the left</li>
+		<li>Rewrite the body in the pane on the right</li>
+		<li><b>Apply</b> (<kbd>Ctrl</kbd>+<kbd>Enter</kbd>) to put it into the document</li>
+		<li><b>Save</b> (<kbd>Ctrl</kbd>+<kbd>S</kbd>) to write the file</li>
 	</ol>
 	<p class="tip">
-		「反映」はメモリ上の文書を書き換えるだけ。ファイルに書かれるのは「保存」を
-		押したとき。上部の「未保存 N」が反映済みで未保存の件数。
+		"Apply" only changes the document held in memory. The file is written when
+		you press "Save". The counter at the top shows how many layers have been
+		applied but not yet saved.
 	</p>
 </section>
 
 <section id="h-tags">
-	<h2>書式タグ</h2>
+	<h2>Formatting tags</h2>
 	<p>
-		PSD のテキストは「ラン (連続する文字に同じ書式)」の並びで書式を持つ。
-		これを本文の中にタグとして畳み込んでいる。
+		PSD text carries its formatting as a sequence of <i>runs</i> (consecutive
+		characters sharing one style). Those runs are folded into the body as tags.
 	</p>
-	<pre>これは[b]太字[/b]で[size=96]大きい[size=48]文字
-[color=#FF0000]赤い文字[color=#000000]黒に戻す
-[align=center]中央揃えの段落</pre>
+	<pre>This is [b]bold[/b] and [size=96]large[size=48]text
+[color=#FF0000]red text[color=#000000]back to black
+[font=NotoSansJP-Bold]another font[/font]back to the base font
+[align=center]a centred paragraph</pre>
 	<p class="tip">
-		<b>閉じタグは無い。</b>タグはその位置から先の状態を変え、次の指定まで
-		効き続ける。戻すときは値を指定し直すか <code>[/xxx]</code> を使う。
-		PSD のランは入れ子ではなく平坦な並びなので、この形が構造にそのまま対応し、
-		入れ子を壊す事故も起きない。
+		<b>There are no closing tags.</b> A tag changes the state from that point
+		onward and stays in effect until the next one. To go back, either specify a
+		value again or use <code>[/xxx]</code>. PSD runs are a flat sequence rather
+		than a nested structure, so this form maps directly onto it — and there is
+		no nesting for a translator to accidentally break.
 	</p>
 	<table>
-		<tr><th>タグ</th><th>効果</th></tr>
-		<tr><td><code>[font=名前]</code></td><td>そこから先のフォント</td></tr>
-		<tr><td><code>[size=48]</code></td><td>文字サイズ (px、小数可)</td></tr>
-		<tr><td><code>[color=#FF0000]</code></td><td>文字色</td></tr>
-		<tr><td><code>[b]</code> <code>[i]</code> <code>[u]</code></td><td>太字 / 斜体 / 下線を <b>on</b></td></tr>
-		<tr><td><code>[/b]</code> <code>[/i]</code> <code>[/u]</code></td><td>同じく <b>off</b></td></tr>
-		<tr><td><code>[/font]</code> <code>[/size]</code> <code>[/color]</code></td><td>その属性を基準へ戻す</td></tr>
-		<tr><td><code>[reset]</code></td><td>全属性を基準へ戻す</td></tr>
-		<tr><td><code>[align=left|right|center]</code></td><td>段落の行揃え (段落の先頭に置く)</td></tr>
-		<tr><td><code>[[</code></td><td>リテラルの <code>[</code></td></tr>
+		<tr><th>Tag</th><th>Effect</th></tr>
+		<tr><td><code>[font=Name]</code></td><td>Font from here on</td></tr>
+		<tr><td><code>[size=48]</code></td><td>Font size in px (decimals allowed)</td></tr>
+		<tr><td><code>[color=#FF0000]</code></td><td>Text colour</td></tr>
+		<tr><td><code>[b]</code> <code>[i]</code> <code>[u]</code></td><td>Bold / italic / underline <b>on</b></td></tr>
+		<tr><td><code>[/b]</code> <code>[/i]</code> <code>[/u]</code></td><td>The same, <b>off</b></td></tr>
+		<tr><td><code>[/font]</code> <code>[/size]</code> <code>[/color]</code></td><td>Return that attribute to the base</td></tr>
+		<tr><td><code>[reset]</code></td><td>Return everything to the base</td></tr>
+		<tr><td><code>[align=left|right|center]</code></td><td>Paragraph alignment (put it at the start of the paragraph)</td></tr>
+		<tr><td><code>[[</code></td><td>A literal <code>[</code></td></tr>
 	</table>
 	<p>
-		基準は「先頭ランの書式」。そこから変わる箇所にだけタグが出るので、
-		<b>書式が一様なテキストにはタグが 1 つも付かない</b>。
-		普通の翻訳作業ではタグを意識しなくてよい。
+		The base is the style of the first run, and tags only appear where the style
+		differs from it. <b>Uniformly styled text therefore carries no tags at
+		all</b>, so ordinary translation work never has to deal with them.
 	</p>
 	<p>
-		書けなかったタグや壊れたタグは、そのままの文字として残る (本文が消えることは無い)。
-		解釈できなかったものがあれば編集欄の下に警告が出る。
+		Tags that cannot be understood are kept as plain characters, so the body is
+		never lost. Anything that could not be interpreted is reported under the
+		edit box.
 	</p>
 </section>
 
 <section id="h-align">
-	<h2>行揃え・フォント・サイズ</h2>
+	<h2>Alignment, font, size</h2>
 	<dl>
-		<dt>行揃えボタン</dt>
+		<dt>Alignment buttons</dt>
 		<dd>
-			段落に直接効く (タグを手で書かなくてよい)。
-			段落ごとに変えたい場合は本文中に <code>[align=...]</code> を置く。
+			Applied to the paragraph directly, so you do not have to write the tag
+			yourself. Put <code>[align=...]</code> in the body when different
+			paragraphs need different alignment.
 		</dd>
-		<dt>フォント</dt>
+		<dt>Font</dt>
 		<dd>
-			候補は<b>その PSD が持っているフォント</b>。それ以外を使いたいときは
-			<code>＋</code> でシステムフォントから追加する。選ぶと編集欄の選択範囲に
-			<code>[font=...]</code> が入る。
-			<b>Photoshop 側にも同じフォントが必要</b>で、無い場合は Photoshop が
-			代替フォントで表示する。
+			The candidates are <b>the fonts the PSD already carries</b>. Use
+			<code>＋</code> to add one from the fonts installed on this PC. Picking a
+			font inserts <code>[font=...]</code> around the selection.
+			<b>Photoshop needs the same font as well</b>; without it Photoshop
+			substitutes another one.
 		</dd>
-		<dt>サイズ / B / I / U</dt>
+		<dt>Size / B / I / U</dt>
 		<dd>
-			編集欄で範囲を選んでからボタンを押すと、その範囲にタグが入る。
-			選択していないときはカーソル位置から先に効く。
-			タグの内側を選んでいた場合は、タグを壊さないよう外側へ寄せてから囲む。
+			Select a range in the edit box and press a button to wrap it in tags.
+			With nothing selected, the tag applies from the cursor onward.
+			If the selection reaches into the middle of a tag, it is snapped outside
+			first so the tag is not broken.
 		</dd>
 	</dl>
 </section>
 
 <section id="h-layers">
-	<h2>レイヤの操作</h2>
+	<h2>Working with layers</h2>
 	<dl>
-		<dt>名前の変更</dt>
+		<dt>Renaming</dt>
 		<dd>
-			ツリーの名前を<b>ダブルクリック</b>、または選択して <kbd>F2</kbd>
-			(「名前」ボタンでも可)。<kbd>Enter</kbd> で確定、<kbd>Esc</kbd> で取り消し。
-			テキストレイヤ以外にも使える。
+			Double-click the name in the tree, or select the layer and press
+			<kbd>F2</kbd> (the "Rename" button does the same). <kbd>Enter</kbd>
+			commits, <kbd>Esc</kbd> cancels. Works on any layer, not just text.
 		</dd>
-		<dt>複製 (= 新規追加)</dt>
+		<dt>Duplicate (= adding a layer)</dt>
 		<dd>
-			選択中のテキストレイヤを複製する。ダイアログで<b>名前と本文をその場で
-			決められる</b>ので、本文を書き換えれば実質「新規テキストレイヤの追加」
-			になる (ボタンを分けていないのはこのため)。
+			Duplicates the selected text layer. The dialog lets you
+			<b>set the name and the body on the spot</b>, so rewriting the body makes
+			this, in effect, "add a new text layer" — which is why there is no
+			separate button for it.
 			<ul>
-				<li>フォント・サイズ・色・位置・流し込み枠は<b>複製元を引き継ぐ</b>
-					(位置を変えたい場合は Photoshop 側で移動する)</li>
-				<li>中身をゼロから組み立てる方式ではないので、
-					<b>テキストレイヤが 1 つも無い PSD には追加できない</b></li>
+				<li>Font, size, colour, position and text box are
+					<b>inherited from the source</b> (move it in Photoshop if you need
+					a different position)</li>
+				<li>Because it is built from an existing layer rather than from
+					scratch, <b>a PSD with no text layer at all cannot get one</b></li>
 			</ul>
 		</dd>
-		<dt>テキストの位置と枠</dt>
+		<dt>Text position and box</dt>
 		<dd>
-			右ペインの「位置」「枠」で数値指定できるほか、次の方法でも動かせる:
+			"Position" and "Box" on the right take numbers, and you can also:
 			<ul>
-				<li><b>プレビュー上でドラッグ</b> — 選択中のテキストレイヤの矩形の中を
-					掴んで動かす</li>
-				<li><b>矢印キー</b>で 1px、<kbd>Shift</kbd>+矢印で 10px
-					(編集欄にカーソルが無いとき)</li>
+				<li><b>Drag on the preview</b> — grab inside the rectangle of the
+					selected text layer</li>
+				<li><b>Arrow keys</b> for 1px, <kbd>Shift</kbd>+arrow for 10px
+					(when the cursor is not in a field)</li>
 			</ul>
-			「位置」は文書上の座標、「枠」はテキストの流し込み枠の大きさ。
-			枠を変えて実際に流し込みが変わるのは<b>段落テキスト</b>で、
-			ポイントテキストでは Photoshop 側が字形から枠を作り直す。
-			位置を動かすと PSD 内蔵のラスタも一緒に動くので、開き直すまでの間も
-			見た目がずれない。
+			"Position" is in document coordinates and "Box" is the size of the text
+			box. Resizing the box only reflows <b>paragraph text</b>; for point text
+			Photoshop rebuilds the box from the glyphs. Moving a layer moves the
+			raster stored in the PSD along with it, so nothing looks displaced before
+			Photoshop reopens the file.
 		</dd>
-		<dt>移動 (▲▼)</dt>
+		<dt>Reordering (▲▼)</dt>
 		<dd>
-			<b>同じ階層の中で</b>ひとつ上/下へ動かす。フォルダを選んでいるときは
-			<b>中身ごと</b>動く。階層をまたぐ移動 (フォルダへの出し入れ) はしない
-			ので、それが必要なときは Photoshop 側で行う。
-			端まで来ていると「これ以上動かせません」と出る。
+			Moves the layer up or down <b>within its own level</b>. Selecting a folder
+			moves it <b>together with its contents</b>. Moving across levels (in and
+			out of folders) is not supported — do that in Photoshop.
+			At either end you get "cannot move any further".
 		</dd>
 	</dl>
 </section>
 
 <section id="h-csv">
-	<h2>CSV で一括編集</h2>
+	<h2>Bulk editing with CSV</h2>
 	<p>
-		<b>CSV 書き出し</b>で次の形式のファイルが得られる
-		(UTF-8 BOM 付き / CRLF なので Excel でそのまま開ける)。
+		<b>Export CSV</b> produces a file in this shape (UTF-8 with BOM and CRLF, so
+		Excel opens it directly):
 	</p>
 	<pre>lyid,path,text
-2,"dialog/名前","こんにちは"
-4,"dialog/本文","1 行目
-2 行目"</pre>
+2,"dialog/name","Hello"
+4,"dialog/body","first line
+second line"</pre>
 	<ul>
-		<li><code>text</code> 列のセル内改行がそのまま段落区切りになる</li>
-		<li><code>text</code> 列には<b>書式タグをそのまま書ける</b></li>
+		<li>A newline inside the <code>text</code> cell becomes a paragraph break</li>
+		<li>The <code>text</code> column <b>may contain formatting tags</b></li>
 		<li>
-			照合は <code>lyid</code> (Photoshop の永続レイヤ ID) が主キー。
-			レイヤの並べ替えや改名をしても対応が壊れない。
-			<code>lyid</code> が無い行は <code>path</code> 列で照合する
-			(同名レイヤが複数あると曖昧なので「未解決」として報告する)
+			Layers are matched by <code>lyid</code> (Photoshop's persistent layer ID),
+			so reordering or renaming layers does not break the mapping. Rows without
+			an <code>lyid</code> fall back to the <code>path</code> column
+			(reported as unresolved when several layers share that name)
 		</li>
-		<li>列の順序は自由で、余分な列があっても無視される</li>
+		<li>Column order is free and extra columns are ignored</li>
 	</ul>
 	<p>
-		<b>CSV 読み込み</b>は最初に<b>確認だけ</b>を行い、変更 / 同一 / 未解決の
-		件数と内訳を出す。内容を見てから「反映する」を押すと文書へ取り込まれる
-		(この時点ではまだメモリ上。ファイルへ書くのは「保存」)。
+		<b>Import CSV</b> first performs a <b>check only</b> pass and reports how many
+		rows would change, stay identical, or fail to resolve. Press "Apply" once the
+		report looks right (that puts it into the in-memory document — the file is
+		written by "Save").
 	</p>
 </section>
 
 <section id="h-save">
-	<h2>保存の仕組み</h2>
+	<h2>How saving works</h2>
 	<ul>
-		<li>上書き保存すると、元ファイルは <code>&lt;名前&gt;.psd.bak</code> へ退避される (既存の <code>.bak</code> は上書きしない)</li>
-		<li>保存ダイアログでパスを入れると別名保存。以後はそちらを編集する</li>
-		<li><b>編集していないレイヤはバイト単位でそのまま</b>書き出される</li>
-		<li>表示 ON/OFF はプレビュー用なので保存されない</li>
+		<li>Saving over the original keeps it as <code>&lt;name&gt;.psd.bak</code> (an existing <code>.bak</code> is never overwritten)</li>
+		<li>Entering a path in the save dialog saves under that name and continues editing there</li>
+		<li><b>Layers you did not edit are written back byte for byte</b></li>
+		<li>Visibility toggles are preview-only and are not saved</li>
 	</ul>
 </section>
 
 <section id="h-keys">
-	<h2>ショートカット</h2>
+	<h2>Shortcuts</h2>
 	<table>
-		<tr><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>本文を反映</td></tr>
-		<tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>保存</td></tr>
-		<tr><td><kbd>F2</kbd></td><td>選択中のレイヤ名を変更</td></tr>
-		<tr><td><kbd>F1</kbd></td><td>このヘルプ</td></tr>
-		<tr><td><kbd>Esc</kbd></td><td>ダイアログを閉じる / 名前変更を取り消す</td></tr>
+		<tr><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>Apply the body</td></tr>
+		<tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save</td></tr>
+		<tr><td><kbd>F2</kbd></td><td>Rename the selected layer</td></tr>
+		<tr><td><kbd>F1</kbd></td><td>This help</td></tr>
+		<tr><td>Arrows / <kbd>Shift</kbd>+arrows</td><td>Move the text layer by 1px / 10px</td></tr>
+		<tr><td><kbd>Esc</kbd></td><td>Close a dialog / cancel renaming</td></tr>
 	</table>
 </section>
 
 <section id="h-limits">
-	<h2 class="warn">できないこと (プレビューの限界)</h2>
+	<h2 class="warn">What it cannot do (limits of the preview)</h2>
 	<p class="warn-box">
-		中央のプレビューは<b>作業用の簡易合成</b>であって、Photoshop の描画結果とは
-		一致しない。<b>最終確認は必ず Photoshop で行うこと。</b>
+		The preview in the centre is an <b>approximate composite for working
+		purposes</b> and does not match what Photoshop draws.
+		<b>Always confirm the result in Photoshop.</b>
 	</p>
-	<h3>合成でできないこと</h3>
+	<h3>Compositing</h3>
 	<ul>
-		<li><b>調整レイヤ</b> (トーンカーブ / 色相彩度 など) は反映されない</li>
-		<li><b>レイヤ効果</b> (ドロップシャドウ / 光彩 / 境界線 など) は反映されない</li>
-		<li><b>グループ (フォルダ) のブレンドモード・不透明度</b>は反映されない</li>
+		<li><b>Adjustment layers</b> (curves, hue/saturation, …) are not applied</li>
+		<li><b>Layer effects</b> (drop shadow, glow, stroke, …) are not applied</li>
+		<li><b>Blend mode and opacity of groups (folders)</b> are not applied</li>
 		<li>
-			ブラウザに相当が無いブレンドモード
-			(ビビッドライト / リニアライト / ピンライト / 焼き込みリニア など) は
-			<b>近いモードで代用</b>している
+			Blend modes the browser has no equivalent for
+			(vivid light, linear light, pin light, linear burn, …) are
+			<b>approximated with the closest available mode</b>
 		</li>
-		<li>ベクトルマスクは未対応 (レイヤマスクは反映される)</li>
+		<li>Vector masks are not supported (layer masks are)</li>
 	</ul>
-	<h3>テキスト仮描画でできないこと</h3>
+	<h3>Redrawn text</h3>
 	<p>
-		PSD が持っているテキストの画像は Photoshop で開き直すまで更新されないので、
-		<b>編集したテキストレイヤはブラウザ側で描き直して</b>重ねている。これも近似:
+		The text raster stored in the PSD is not updated until Photoshop reopens the
+		file, so <b>edited text layers are redrawn by the browser</b> instead. That is
+		also an approximation:
 	</p>
 	<ul>
-		<li>字詰め (カーニング / トラッキング) ・禁則処理は再現しない</li>
-		<li><b>縦書き</b>は横書きとして描かれる</li>
-		<li>変形 (回転 / 拡大縮小 / ワープ) は反映されない</li>
-		<li>行送りは「最大文字サイズ × 1.4」の概算</li>
-		<li>枠に対する自動折り返しはしない (長くすると枠からはみ出る)</li>
-		<li>
-			<b>この PC に入っていないフォントは代替表示</b>になる
-			(編集欄に注記が出る)
-		</li>
+		<li>Kerning, tracking and line-breaking rules are not reproduced</li>
+		<li><b>Vertical text</b> is drawn horizontally</li>
+		<li>Transforms (rotation, scaling, warp) are not applied</li>
+		<li>Line spacing is estimated as "largest font size × 1.4"</li>
+		<li>Text is not wrapped to the box (long text overflows it)</li>
+		<li><b>Fonts not installed on this PC are substituted</b> (noted in the edit pane)</li>
 	</ul>
-	<h3>編集でできないこと</h3>
+	<h3>Editing</h3>
 	<ul>
 		<li>
-			テキストレイヤの追加は<b>既存レイヤの複製が土台</b>
-			(「新規追加」参照)。雛形が無い PSD — つまりテキストレイヤが 1 枚も
-			無い PSD — には追加できない
+			Adding a text layer is built on duplicating an existing one (see
+			"Duplicate"), so a PSD without a single text layer cannot get one
 		</li>
-		<li>位置と流し込み枠を変えられるのは<b>テキストレイヤだけ</b>。
-			画像レイヤの移動や拡大縮小は Photoshop 側で行う</li>
-		<li>テキストの回転・変形はできない (変換行列のうち移動成分だけを扱う)</li>
-		<li>重ね順の変更は<b>同じ階層の中だけ</b>。フォルダへの出し入れはできない</li>
-		<li>保存後の合成プレビュー画像 (Photoshop が持つサムネイル) は古いまま</li>
+		<li>
+			Position and text box can be changed <b>for text layers only</b>. Moving or
+			scaling image layers is done in Photoshop
+		</li>
+		<li>Text cannot be rotated or transformed (only the translation part of the matrix is handled)</li>
+		<li>Reordering is limited to one level; layers cannot be moved in or out of folders</li>
+		<li>The composite thumbnail Photoshop stores in the file stays stale after saving</li>
 	</ul>
 </section>
 
 <section id="h-auto">
-	<h2>自動化 (REPL)</h2>
+	<h2>Automation (REPL)</h2>
 	<p>
-		<code>--repl</code> (対話) / <code>--replfile=DIR</code> (エージェント / CI) /
-		<code>POST /_app/repl</code> (curl) から操作できる。
+		The app can be driven through <code>--repl</code> (interactive),
+		<code>--replfile=DIR</code> (agents / CI) or
+		<code>POST /_app/repl</code> (curl).
 	</p>
 	<table>
-		<tr><td><code>.psd</code></td><td>開いている文書の情報</td></tr>
-		<tr><td><code>.texts</code></td><td>テキストレイヤ一覧 (<code>*</code> が未保存)</td></tr>
-		<tr><td><code>.settext &lt;index&gt; &lt;text&gt;</code></td><td>本文を差し替える</td></tr>
-		<tr><td><code>.b state</code></td><td>画面の状態を覗く</td></tr>
-		<tr><td><code>.b call select 3</code></td><td>レイヤを選ぶ</td></tr>
-		<tr><td><code>.b call rename {"index":1,"name":"新名"}</code></td><td>レイヤ名を変える</td></tr>
-		<tr><td><code>.b call move {"index":3,"up":true}</code></td><td>重ね順を動かす</td></tr>
-		<tr><td><code>.b call place {"x":200,"y":120}</code></td><td>テキストの位置</td></tr>
-		<tr><td><code>.b call place {"width":320,"height":180}</code></td><td>テキストの枠</td></tr>
-		<tr><td><code>.b call duplicate {"name":"新","text":"本文"}</code></td><td>複製 / 追加</td></tr>
-		<tr><td><code>.b call save</code></td><td>保存</td></tr>
+		<tr><td><code>.psd</code></td><td>Information about the open document</td></tr>
+		<tr><td><code>.texts</code></td><td>List the text layers (<code>*</code> = unsaved)</td></tr>
+		<tr><td><code>.settext &lt;index&gt; &lt;text&gt;</code></td><td>Replace a body</td></tr>
+		<tr><td><code>.b state</code></td><td>Inspect the UI state</td></tr>
+		<tr><td><code>.b call select 3</code></td><td>Select a layer</td></tr>
+		<tr><td><code>.b call rename {"index":1,"name":"New"}</code></td><td>Rename a layer</td></tr>
+		<tr><td><code>.b call move {"index":3,"up":true}</code></td><td>Change the stacking order</td></tr>
+		<tr><td><code>.b call place {"x":200,"y":120}</code></td><td>Text position</td></tr>
+		<tr><td><code>.b call place {"width":320,"height":180}</code></td><td>Text box</td></tr>
+		<tr><td><code>.b call lang en</code></td><td>Switch the display language</td></tr>
+		<tr><td><code>.b call save</code></td><td>Save</td></tr>
 	</table>
 	<p>
-		HTTP API の一覧は README を参照。すべて <code>X-App-Token</code> ヘッダが要る。
+		See the README for the full HTTP API. Every route requires the
+		<code>X-App-Token</code> header.
 	</p>
 </section>

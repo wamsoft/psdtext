@@ -10,6 +10,8 @@
 import { app } from './lib/appserve.js';
 import { composite, resetCache } from './composite.js';
 import { parseTagged, drawText, fontAvailable } from './textrender.js';
+// ローカル変数 t (テキストレイヤ) と衝突するので tr という別名で受ける
+import { t as tr, initLang, setLang, currentLang, applyI18n, serverMessage } from './i18n.js';
 
 const $ = (s) => document.querySelector(s);
 
@@ -87,7 +89,7 @@ function renderAll() {
 	const dirty = info.dirty || 0;
 	const badge = $('#dirtyBadge');
 	badge.hidden = !dirty;
-	badge.textContent = '未保存 ' + dirty;
+	badge.textContent = tr('app.unsaved') + ' ' + dirty;
 
 	for (const id of ['#saveBtn', '#exportBtn', '#importBtn']) $(id).disabled = !info.open;
 
@@ -160,9 +162,7 @@ function renderTree() {
 		const on = state.visible.get(l.index) !== false;
 		eye.className = 'eye' + (on ? '' : ' off');
 		eye.textContent = on ? '👁' : '·';
-		eye.title = l.kind === 'folder'
-			? 'このフォルダ以下の表示を切り替え (プレビュー専用)'
-			: '表示を切り替え (プレビュー専用)';
+		eye.title = tr(l.kind === 'folder' ? 'tree.eye.folder' : 'tree.eye.layer');
 		eye.addEventListener('click', (e) => {
 			e.stopPropagation();
 			state.visible.set(l.index, !on);
@@ -177,7 +177,7 @@ function renderTree() {
 		const name = document.createElement('span');
 		name.className = 'tree-name';
 		name.textContent = l.name;
-		name.title = 'ダブルクリックで名前を変更';
+		name.title = tr('tree.rename.hint');
 		name.addEventListener('dblclick', (e) => {
 			e.stopPropagation();
 			beginRename(l.index, name);
@@ -243,7 +243,7 @@ async function redraw() {
 		canvas.height = h;
 	}
 
-	$('#viewStatus').textContent = '合成中…';
+	$('#viewStatus').textContent = tr('view.compositing');
 	try {
 		await composite(app, ctx, w, h, state.tree, state.visible,
 		                { textPainter: makeTextPainter() });
@@ -262,10 +262,10 @@ async function redraw() {
 		}
 		const shown = state.tree.filter(l => l.hasPixels &&
 			state.visible.get(l.index) !== false).length;
-		$('#viewStatus').textContent = `${w}×${h} / 表示 ${shown} レイヤ`;
+		$('#viewStatus').textContent = tr('view.status', w, h, shown);
 		updateViewNote();
 	} catch (e) {
-		$('#viewStatus').textContent = '合成に失敗: ' + e.message;
+		$('#viewStatus').textContent = tr('view.failed', e.message);
 	}
 	// 起動直後は右ペインや canvas のサイズが確定していないので、描画を終えて
 	// レイアウトが落ち着いてから「全体表示」を計算する。
@@ -295,15 +295,15 @@ function updateViewNote() {
 	const vis = (l) => state.visible.get(l.index) !== false;
 
 	const adjust = state.tree.filter(l => l.kind === 'adjust' && vis(l)).length;
-	if (adjust) parts.push(`調整レイヤ ${adjust} 枚は未反映`);
+	if (adjust) parts.push(tr('note.adjust', adjust));
 
 	// グループのブレンド / 不透明度は反映していない
 	const groups = state.tree.filter(l => l.kind === 'folder' && vis(l) &&
 		((l.blend && l.blend !== 'source-over') || (l.opacity ?? 255) < 255)).length;
-	if (groups) parts.push(`グループの合成設定 ${groups} 件は未反映`);
+	if (groups) parts.push(tr('note.groups', groups));
 
 	const approx = state.tree.filter(l => vis(l) && APPROX_BLENDS.has(l.blend)).length;
-	if (approx) parts.push(`代用しているブレンド ${approx} 件`);
+	if (approx) parts.push(tr('note.approx', approx));
 
 	// 仮描画しているレイヤと、そのフォントがこの PC に無いもの
 	if (state.renderText) {
@@ -312,17 +312,17 @@ function updateViewNote() {
 			const missing = [...new Set(drawn.map(t => t.font)
 				.filter(f => f && !fontAvailable(f)))];
 			parts.push(missing.length
-				? `テキスト ${drawn.length} 件を仮描画中 (フォント ${missing.join(', ')} は代替表示)`
-				: `テキスト ${drawn.length} 件を仮描画中`);
+				? tr('note.drawnMissing', drawn.length, missing.join(', '))
+				: tr('note.drawn', drawn.length));
 		}
 	}
 
 	// 基本の注意は必ず残す。レイヤ効果 (lfx2) は検出していないので、
 	// 具体的な指摘が出たときにこの一文が消えると見落としに繋がる。
 	const note = $('#viewNoteText');
-	let text = '簡易合成: 調整レイヤ・レイヤ効果・グループの合成設定は未反映。';
-	if (parts.length) text += ' この PSD では ' + parts.join(' / ') + '。';
-	text += ' 最終確認は Photoshop で。';
+	let text = tr('note.base');
+	if (parts.length) text += tr('note.thisPsd', parts.join(' / '));
+	text += tr('note.tail');
 	note.textContent = text;
 	$('#viewNote').classList.toggle('has-issue', parts.length > 0);
 }
@@ -334,8 +334,8 @@ function applyZoom() {
 	canvas.style.height = (canvas.height * state.zoom / d) + 'px';
 	$('#zoomLevel').textContent = Math.round(state.zoom * 100) + '%';
 	$('#zoomLevel').title = d !== 1
-		? `クリックで等倍 (表示スケール ${Math.round(d * 100)}% を補正済み)`
-		: 'クリックで等倍';
+		? tr('view.zoom.titleDpr', Math.round(d * 100))
+		: tr('view.zoom.title');
 }
 
 function fitZoom() {
@@ -456,14 +456,15 @@ function renderEditor() {
 		ta.dataset.index = '';
 		$('#applyBtn').disabled = true;
 		$('#revertBtn').disabled = true;
-		setEditStatus(node ? `${node.kind} レイヤ (テキストではありません)` : '');
+		setEditStatus(node ? tr('edit.notText', node.kind) : '');
 		return;
 	}
 
 	const rows = [
-		['レイヤ', t.path],
-		['lyid', String(t.lyid || '(なし)')],
-		['位置', `${t.rect[0]}, ${t.rect[1]} — ${t.rect[2] - t.rect[0]}×${t.rect[3] - t.rect[1]}`],
+		[tr('edit.meta.layer'), t.path],
+		['lyid', String(t.lyid || '-')],
+		[tr('edit.meta.pos'),
+		 `${t.rect[0]}, ${t.rect[1]} — ${t.rect[2] - t.rect[0]}×${t.rect[3] - t.rect[1]}`],
 	];
 	for (const [k, v] of rows) {
 		const d = document.createElement('div');
@@ -482,7 +483,7 @@ function renderEditor() {
 		seen.add(f);
 		const o = document.createElement('option');
 		o.value = f;
-		o.textContent = f + (fontAvailable(f) ? '' : '  (この PC に無し)');
+		o.textContent = f + (fontAvailable(f) ? '' : '  ' + tr('edit.fontNotHere'));
 		sel.appendChild(o);
 	}
 	sel.value = t.font || '';
@@ -501,8 +502,8 @@ function renderEditor() {
 	// 枠を持たないテキストレイヤ (ポイントテキスト) は珍しくない。
 	// 「情報が無い」ではなく「枠という概念が無い」ことを伝える。
 	const notes = [];
-	if (t.vertical) notes.push('縦書き (仮描画は横書きで代用)');
-	if (!t.hasBounds) notes.push('ポイントテキスト (流し込み枠なし)');
+	if (t.vertical) notes.push(tr('edit.vertical'));
+	if (!t.hasBounds) notes.push(tr('edit.pointText'));
 	$('#placeHint').textContent = notes.join(' / ');
 
 	const curAlign = (t.paragraphJust && t.paragraphJust[0]) || 0;
@@ -518,9 +519,9 @@ function renderEditor() {
 	$('#applyBtn').disabled = (ta.value === t.text);
 	$('#revertBtn').disabled = !t.dirty;
 
-	let hint = t.styled ? '書式タグを含みます。' : '';
-	if (t.font && !fontAvailable(t.font)) hint += '仮描画のフォントは代替表示です。';
-	setEditStatus(t.dirty ? '未保存の変更あり' + (hint ? ' / ' + hint : '') : hint,
+	let hint = t.styled ? tr('edit.styled') : '';
+	if (t.font && !fontAvailable(t.font)) hint += tr('edit.fontMissing');
+	setEditStatus(t.dirty ? tr('edit.unsaved') + (hint ? ' / ' + hint : '') : hint,
 	              t.dirty ? 'ok' : '');
 }
 
@@ -537,9 +538,9 @@ async function applyText() {
 		state.info.dirty = state.texts.filter(x => x.dirty).length;
 		renderAll();
 		scheduleRedraw();
-		setEditStatus(r.warning ? r.warning : '反映しました', r.warning ? 'error' : 'ok');
+		setEditStatus(r.warning ? r.warning : tr('edit.applied'), r.warning ? 'error' : 'ok');
 	} catch (e) {
-		setEditStatus(e.message, 'error');
+		setEditStatus(serverMessage(e.message), 'error');
 	}
 }
 
@@ -554,7 +555,7 @@ async function revertText() {
 		renderAll();
 		scheduleRedraw();
 	} catch (e) {
-		setEditStatus(e.message, 'error');
+		setEditStatus(serverMessage(e.message), 'error');
 	}
 }
 
@@ -612,7 +613,7 @@ async function setAlign(align) {
 		renderAll();
 		scheduleRedraw();
 	} catch (e) {
-		toast(e.message, true);
+		toast(serverMessage(e.message), true);
 	}
 }
 
@@ -644,9 +645,9 @@ function beginRename(index, span) {
 		try {
 			const r = await app.post('/api/psd/name', { index, name: value });
 			applyDoc(r, { keepVisibility: true });
-			toast(`レイヤ名を「${value}」に変更しました`);
+			toast(tr('msg.renamed', value));
 		} catch (e) {
-			toast(e.message, true);
+			toast(serverMessage(e.message), true);
 			renderTree();
 		}
 	};
@@ -676,7 +677,7 @@ function renameSelected() {
 function openDupDialog() {
 	const t = state.selected === null ? null : textOf(state.selected);
 	if (!t) return;
-	$('#dupName').value = t.name + ' のコピー';
+	$('#dupName').value = t.name + ' copy';
 	$('#dupText').value = t.text;
 	$('#dupDialog').hidden = false;
 	$('#dupName').focus();
@@ -688,7 +689,7 @@ async function duplicateLayer() {
 	if (!t) return;
 	const body = {
 		index: t.index,
-		name: $('#dupName').value.trim() || (t.name + ' のコピー'),
+		name: $('#dupName').value.trim() || (t.name + ' copy'),
 		text: $('#dupText').value,
 	};
 	try {
@@ -700,9 +701,9 @@ async function duplicateLayer() {
 			state.visible.set(r.index, true);
 			select(r.index);
 		}
-		toast('レイヤを複製しました');
+		toast(tr('msg.duplicated'));
 	} catch (e) {
-		toast(e.message, true);
+		toast(serverMessage(e.message), true);
 	}
 }
 
@@ -716,7 +717,7 @@ async function moveText(dx, dy) {
 		applyDoc(r, { keepVisibility: true });
 		scheduleRedraw();
 	} catch (e) {
-		toast(e.message, true);
+		toast(serverMessage(e.message), true);
 	}
 }
 
@@ -730,7 +731,7 @@ async function resizeText(width, height) {
 		applyDoc(r, { keepVisibility: true });
 		scheduleRedraw();
 	} catch (e) {
-		toast(e.message, true);
+		toast(serverMessage(e.message), true);
 	}
 }
 
@@ -745,7 +746,7 @@ async function moveLayer(up) {
 		if (typeof r.index === 'number') select(r.index);
 		scheduleRedraw();
 	} catch (e) {
-		toast(e.message, true);   // 端で止まったときもここに来る
+		toast(serverMessage(e.message), true);   // 端で止まったときもここに来る
 	}
 }
 
@@ -802,7 +803,7 @@ function addFont(name) {
 	$('#fontSel').value = name;
 	// 選択範囲にフォント指定を入れる
 	wrapSelection(`[font=${name}]`, '[/font]');
-	toast(`フォント「${name}」を候補に追加しました`);
+	toast(tr('msg.fontAdded', name));
 }
 
 //---------------------------------------------------------------------------
@@ -849,7 +850,7 @@ async function browseTo(path) {
 			list.appendChild(row);
 		}
 	} catch (e) {
-		toast(e.message, true);
+		toast(serverMessage(e.message), true);
 	}
 }
 
@@ -864,9 +865,9 @@ async function openPsd(path) {
 		applyDoc(res);
 		const first = state.texts[0];
 		if (first) select(first.index);
-		toast(`${state.texts.length} 個のテキストレイヤを読み込みました`);
+		toast(tr('msg.loaded', state.texts.length));
 	} catch (e) {
-		toast(e.message, true);
+		toast(serverMessage(e.message), true);
 	}
 }
 
@@ -880,25 +881,27 @@ function renderReport(r) {
 	const sum = document.createElement('div');
 	sum.className = 'summary';
 	sum.textContent = r.applied
-		? `反映: 変更 ${r.changed} / 同一 ${r.same} / 未解決 ${r.notfound} / 失敗 ${r.failed}`
-		: `確認: 変更予定 ${r.changed} / 同一 ${r.same} / 未解決 ${r.notfound}`;
+		? tr('csv.applied', r.changed, r.same, r.notfound, r.failed)
+		: tr('csv.dry', r.changed, r.same, r.notfound);
 	host.appendChild(sum);
 
 	const shown = (r.rows || []).filter(x => x.status !== 'same');
 	if (!shown.length) {
 		const p = document.createElement('p');
 		p.className = 'hint';
-		p.textContent = '差分はありません。';
+		p.textContent = tr('csv.noDiff');
 		host.appendChild(p);
 		return;
 	}
 	const table = document.createElement('table');
-	table.innerHTML = '<tr><th>状態</th><th>lyid</th><th>レイヤ</th><th>備考</th></tr>';
+	table.innerHTML = `<tr><th>${tr('csv.col.status')}</th><th>lyid</th>` +
+		`<th>${tr('csv.col.layer')}</th><th>${tr('csv.col.note')}</th></tr>`;
 	for (const row of shown.slice(0, 300)) {
 		const tr = document.createElement('tr');
 		const st = document.createElement('td');
 		st.className = row.status;
-		st.textContent = { changed: '変更', notfound: '未解決', error: '失敗' }[row.status] || row.status;
+		st.textContent = { changed: tr('csv.changed'), notfound: tr('csv.notfound'),
+		                   error: tr('csv.error') }[row.status] || row.status;
 		const id = document.createElement('td'); id.textContent = row.lyid || '';
 		const pa = document.createElement('td'); pa.textContent = row.path || '';
 		const ms = document.createElement('td'); ms.textContent = row.message || '';
@@ -910,7 +913,7 @@ function renderReport(r) {
 
 async function importCsv(apply) {
 	const file = $('#csvFile').files[0];
-	if (!file && !state.pendingCsv) { toast('CSV ファイルを選んでください', true); return; }
+	if (!file && !state.pendingCsv) { toast(tr('msg.pickCsv'), true); return; }
 	const text = file ? await file.text() : state.pendingCsv;
 	try {
 		const r = await app.post('/api/psd/import', { csv: text, apply });
@@ -920,13 +923,13 @@ async function importCsv(apply) {
 			$('#editText').dataset.index = '';
 			state.pendingCsv = null;
 			$('#csvApply').disabled = true;
-			toast(`${r.changed} 件のテキストを更新しました`);
+			toast(tr('msg.csvUpdated', r.changed));
 		} else {
 			state.pendingCsv = text;
 			$('#csvApply').disabled = (r.changed === 0);
 		}
 	} catch (e) {
-		toast(e.message, true);
+		toast(serverMessage(e.message), true);
 	}
 }
 
@@ -940,9 +943,9 @@ async function save() {
 		$('#saveDialog').hidden = true;
 		$('#editText').dataset.index = '';
 		applyDoc(r, { keepVisibility: true });
-		toast('保存しました: ' + r.path);
+		toast(tr('msg.saved', r.path));
 	} catch (e) {
-		toast(e.message, true);
+		toast(serverMessage(e.message), true);
 	}
 }
 
@@ -970,7 +973,7 @@ function setupReplBridge() {
 	});
 	app.command('place', async (a) => {
 		const t = textOf(state.selected);
-		if (!t) throw new Error('テキストレイヤを選んでください');
+		if (!t) throw new Error(tr('msg.needText'));
 		const body = { index: t.index };
 		if (a.dx !== undefined || a.dy !== undefined) {
 			body.dx = a.dx || 0; body.dy = a.dy || 0;
@@ -986,10 +989,10 @@ function setupReplBridge() {
 	});
 	app.command('duplicate', async (a) => {
 		const t = textOf(state.selected);
-		if (!t) throw new Error('テキストレイヤを選んでください');
+		if (!t) throw new Error(tr('msg.needText'));
 		const r = await app.post('/api/psd/duplicate', {
 			index: t.index,
-			name: (a && a.name) || (t.name + ' のコピー'),
+			name: (a && a.name) || (t.name + ' copy'),
 			text: (a && a.text !== undefined) ? a.text : t.text,
 		});
 		applyDoc(r, { keepVisibility: true });
@@ -1002,6 +1005,7 @@ function setupReplBridge() {
 		applyDoc(r, { keepVisibility: true });
 		return nodeOf(index) ? nodeOf(index).name : null;
 	});
+	app.command('lang', (a) => changeLang(typeof a === 'string' ? a : a.lang));
 	app.command('filter', (a) => { state.filter = String(a ?? ''); $('#filter').value = state.filter; renderTree(); });
 
 	app.exposeState(() => ({
@@ -1018,9 +1022,30 @@ function setupReplBridge() {
 }
 
 //---------------------------------------------------------------------------
+/// 表示言語を切り替えて、動的に組んだ文言も作り直す。
+/// viewStatus は描画のたびに作るので再描画も促す。
+function changeLang(next) {
+	setLang(next);
+	$('#langSel').value = currentLang();
+	helpLoaded = false;              // ヘルプは言語別ファイルなので読み直す
+	$('#helpBody').textContent = '';
+	renderAll();
+	updateViewNote();
+	applyZoom();
+	scheduleRedraw();
+	return currentLang();
+}
+
+//---------------------------------------------------------------------------
 // 起動
 //---------------------------------------------------------------------------
 async function main() {
+	// 文言は DOM を組み立てる前に一度当てておく (初期表示が英語で出るように)
+	initLang();
+	applyI18n();
+	$('#langSel').value = currentLang();
+	$('#langSel').addEventListener('change', (e) => changeLang(e.target.value));
+
 	await app.ready();
 	setupReplBridge();
 
@@ -1225,9 +1250,11 @@ let helpLoaded = false;
 async function openHelp(anchor) {
 	const dlg = $('#helpDialog');
 	dlg.hidden = false;
+	if (!helpLoaded) $('#helpBody').textContent = tr('dlg.loading');
 	if (!helpLoaded) {
 		try {
-			const res = await fetch('./help.html');
+			// 英語が help.html、日本語が help_ja.html (README と同じ規約)
+			const res = await fetch(currentLang() === 'ja' ? './help_ja.html' : './help.html');
 			$('#helpBody').innerHTML = await res.text();
 			helpLoaded = true;
 			// 目次のリンクはモーダル内でスクロールさせる (ページ遷移させない)
@@ -1239,7 +1266,7 @@ async function openHelp(anchor) {
 				});
 			});
 		} catch (e) {
-			$('#helpBody').textContent = 'ヘルプを読み込めませんでした: ' + e.message;
+			$('#helpBody').textContent = tr('msg.helpFailed', e.message);
 		}
 	}
 	if (anchor) {
@@ -1261,6 +1288,6 @@ async function refreshAll() {
 }
 
 main().catch(e => {
-	toast('起動に失敗しました: ' + e.message, true);
+	toast(tr('msg.startFailed', e.message), true);
 	console.error(e);
 });

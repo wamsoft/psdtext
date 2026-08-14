@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,51 +10,57 @@
 
 <header id="topbar">
 	<div class="brand">psdtext</div>
-	<button id="openBtn" title="PSD を開く">開く…</button>
+	<button id="openBtn" data-i18n="app.open" data-i18n-title="app.open.title">Open…</button>
 	<span id="docPath" class="path" title=""></span>
-	<span id="dirtyBadge" class="badge" hidden>未保存 0</span>
+	<span id="dirtyBadge" class="badge" hidden></span>
 	<span class="spacer"></span>
-	<input type="search" id="filter" placeholder="レイヤ名 / 本文で絞り込み">
-	<button id="exportBtn" title="テキストを CSV で書き出す">CSV 書き出し</button>
-	<button id="importBtn" title="CSV を読み込んで一括反映">CSV 読み込み</button>
-	<button id="saveBtn" class="primary" title="PSD を保存 (元ファイルは .bak へ退避)">保存</button>
-	<button id="helpBtn" class="icon" title="使い方 (F1)">?</button>
-	<button id="logBtn" class="icon" title="ログ">≡</button>
+	<input type="search" id="filter" data-i18n-ph="app.filter.ph">
+	<button id="exportBtn" data-i18n="app.csvExport" data-i18n-title="app.csvExport.title">Export CSV</button>
+	<button id="importBtn" data-i18n="app.csvImport" data-i18n-title="app.csvImport.title">Import CSV</button>
+	<button id="saveBtn" class="primary" data-i18n="app.save" data-i18n-title="app.save.title">Save</button>
+	<select id="langSel" class="lang" data-i18n-title="app.lang.title">
+		<option value="en">EN</option>
+		<option value="ja">日本語</option>
+	</select>
+	<button id="helpBtn" class="icon" data-i18n-title="app.help.title">?</button>
+	<button id="logBtn" class="icon" data-i18n-title="app.log.title">≡</button>
 </header>
 
 <main id="layout">
 	<!-- 左: レイヤツリー -->
 	<nav id="treePane" class="pane">
 		<div class="pane-title">
-			<span>レイヤ</span>
+			<span data-i18n="tree.title">Layers</span>
 			<span class="title-actions">
-				<button id="showAllBtn" class="mini" title="すべて表示">全表示</button>
-				<button id="textOnlyBtn" class="mini" title="テキストレイヤだけ表示">テキストのみ</button>
-				<button id="resetVisBtn" class="mini" title="PSD の表示状態へ戻す">元に戻す</button>
+				<button id="showAllBtn" class="mini" data-i18n="tree.showAll" data-i18n-title="tree.showAll.title">Show all</button>
+				<button id="textOnlyBtn" class="mini" data-i18n="tree.textOnly" data-i18n-title="tree.textOnly.title">Text only</button>
+				<button id="resetVisBtn" class="mini" data-i18n="tree.reset" data-i18n-title="tree.reset.title">Reset</button>
 			</span>
 		</div>
 		<div id="tree"></div>
 		<div class="pane-foot">
-			<button id="moveUpBtn" class="icon" disabled title="ひとつ上へ (フォルダは中身ごと)">▲</button>
-			<button id="moveDownBtn" class="icon" disabled title="ひとつ下へ (フォルダは中身ごと)">▼</button>
-			<button id="renameBtn" disabled title="レイヤ名を変更 (F2 / 名前をダブルクリック)">名前</button>
-			<button id="dupBtn" disabled title="選択中のテキストレイヤを複製する (名前と本文はその場で決められる)">複製</button>
+			<button id="moveUpBtn" class="icon" disabled data-i18n-title="tree.up.title">▲</button>
+			<button id="moveDownBtn" class="icon" disabled data-i18n-title="tree.down.title">▼</button>
+			<button id="renameBtn" disabled data-i18n="tree.rename" data-i18n-title="tree.rename.title">Rename</button>
+			<button id="dupBtn" disabled data-i18n="tree.dup" data-i18n-title="tree.dup.title">Duplicate</button>
 		</div>
 	</nav>
 
 	<!-- 中央: 合成プレビュー -->
 	<section id="viewPane">
 		<div class="view-bar">
-			<button id="zoomOut" class="icon" title="縮小">−</button>
-			<button id="zoomLevel" title="クリックで等倍">100%</button>
-			<button id="zoomIn" class="icon" title="拡大">＋</button>
-			<button id="zoomFit" title="ウィンドウに合わせる">全体</button>
+			<button id="zoomOut" class="icon" data-i18n-title="view.zoomOut.title">−</button>
+			<button id="zoomLevel" data-i18n-title="view.zoom.title">100%</button>
+			<button id="zoomIn" class="icon" data-i18n-title="view.zoomIn.title">＋</button>
+			<button id="zoomFit" data-i18n="view.fit" data-i18n-title="view.fit.title">Fit</button>
 			<span class="spacer"></span>
-			<label class="chk" title="編集したテキストを画面上で描き直して重ねる (PSD 内蔵の画像は古いままなので)">
-				<input type="checkbox" id="renderText" checked> テキスト仮描画
+			<label class="chk" data-i18n-title="view.renderText.title">
+				<input type="checkbox" id="renderText" checked>
+				<span data-i18n="view.renderText">Redraw text</span>
 			</label>
-			<label class="chk" title="選択中のレイヤの枠を表示">
-				<input type="checkbox" id="showBounds" checked> 枠
+			<label class="chk" data-i18n-title="view.bounds.title">
+				<input type="checkbox" id="showBounds" checked>
+				<span data-i18n="view.bounds">Bounds</span>
 			</label>
 			<span id="viewStatus" class="status"></span>
 		</div>
@@ -64,54 +70,52 @@
 		<div id="viewNote">
 			<span class="note-icon">⚠</span>
 			<span id="viewNoteText"></span>
-			<button id="viewNoteMore" class="linkish">詳しく</button>
+			<button id="viewNoteMore" class="linkish" data-i18n="view.more">Details</button>
 		</div>
 	</section>
 
 	<!-- 右: 編集 -->
 	<aside id="editPane" class="pane">
-		<div class="pane-title">編集</div>
+		<div class="pane-title" data-i18n="edit.title">Edit</div>
 		<div id="editMeta" class="meta"></div>
 
 		<div id="styleBar" class="style-bar">
-			<label>フォント
+			<label><span data-i18n="edit.font">Font</span>
 				<select id="fontSel" disabled></select>
 			</label>
-			<button id="fontAddBtn" class="mini" disabled title="システムのフォントから追加">＋</button>
-			<label>サイズ
+			<button id="fontAddBtn" class="mini" disabled data-i18n-title="edit.font.add">＋</button>
+			<label><span data-i18n="edit.size">Size</span>
 				<input type="number" id="sizeInput" class="num" min="1" max="2000" step="0.5" disabled>
 			</label>
 			<span class="align-group">
-				<button class="mini align" data-align="0" disabled title="左揃え">⯇</button>
-				<button class="mini align" data-align="2" disabled title="中央揃え">⯈⯇</button>
-				<button class="mini align" data-align="1" disabled title="右揃え">⯈</button>
+				<button class="mini align" data-align="0" disabled data-i18n-title="edit.alignL">⯇</button>
+				<button class="mini align" data-align="2" disabled data-i18n-title="edit.alignC">⯈⯇</button>
+				<button class="mini align" data-align="1" disabled data-i18n-title="edit.alignR">⯈</button>
 			</span>
 			<span class="style-group">
-				<button class="mini" id="boldBtn" disabled title="太字 (選択範囲)"><b>B</b></button>
-				<button class="mini" id="italicBtn" disabled title="斜体 (選択範囲)"><i>I</i></button>
-				<button class="mini" id="underBtn" disabled title="下線 (選択範囲)"><u>U</u></button>
+				<button class="mini" id="boldBtn" disabled data-i18n-title="edit.bold"><b>B</b></button>
+				<button class="mini" id="italicBtn" disabled data-i18n-title="edit.italic"><i>I</i></button>
+				<button class="mini" id="underBtn" disabled data-i18n-title="edit.under"><u>U</u></button>
 			</span>
 		</div>
-		<p class="hint" id="styleHint">
-			書式は本文中のタグで表す。編集欄で範囲を選んでからボタンを押すとタグが入る。
-		</p>
+		<p class="hint" id="styleHint" data-i18n="edit.styleHint"></p>
 
 		<div id="placeBar" class="style-bar">
-			<label>位置
-				<input type="number" id="posX" class="num" step="1" disabled title="文書上の X 座標">
-				<input type="number" id="posY" class="num" step="1" disabled title="文書上の Y 座標">
+			<label><span data-i18n="edit.pos">Position</span>
+				<input type="number" id="posX" class="num" step="1" disabled data-i18n-title="edit.posX.title">
+				<input type="number" id="posY" class="num" step="1" disabled data-i18n-title="edit.posY.title">
 			</label>
-			<label>枠
-				<input type="number" id="boxW" class="num" step="1" min="1" disabled title="流し込み枠の幅">
-				<input type="number" id="boxH" class="num" step="1" min="1" disabled title="流し込み枠の高さ">
+			<label><span data-i18n="edit.box">Box</span>
+				<input type="number" id="boxW" class="num" step="1" min="1" disabled data-i18n-title="edit.boxW.title">
+				<input type="number" id="boxH" class="num" step="1" min="1" disabled data-i18n-title="edit.boxH.title">
 			</label>
 			<span id="placeHint" class="status"></span>
 		</div>
 
-		<textarea id="editText" spellcheck="false" placeholder="レイヤを選ぶと編集できます" disabled></textarea>
+		<textarea id="editText" spellcheck="false" data-i18n-ph="edit.text.ph" disabled></textarea>
 		<div class="edit-actions">
-			<button id="applyBtn" disabled title="本文を反映 (Ctrl+Enter)">反映</button>
-			<button id="revertBtn" disabled title="読み込み時の内容へ戻す">元に戻す</button>
+			<button id="applyBtn" disabled data-i18n="edit.apply" data-i18n-title="edit.apply.title">Apply</button>
+			<button id="revertBtn" disabled data-i18n="edit.revert" data-i18n-title="edit.revert.title">Revert</button>
 			<span id="editStatus" class="status"></span>
 		</div>
 	</aside>
@@ -120,11 +124,11 @@
 <!-- PSD を開く -->
 <div id="openDialog" class="modal" hidden>
 	<div class="modal-box">
-		<div class="modal-head">PSD を開く<button class="icon close" data-close>×</button></div>
+		<div class="modal-head"><span data-i18n="dlg.openPsd">Open a PSD</span><button class="icon close" data-close>×</button></div>
 		<div class="modal-body">
 			<div class="row">
-				<input type="text" id="openPath" spellcheck="false" placeholder="D:/work/foo.psd">
-				<button id="openGo" class="primary">開く</button>
+				<input type="text" id="openPath" spellcheck="false" data-i18n-ph="dlg.openPath.ph">
+				<button id="openGo" class="primary" data-i18n="dlg.openGo">Open</button>
 			</div>
 			<div class="browser">
 				<div class="crumbs" id="fsCrumbs"></div>
@@ -134,23 +138,39 @@
 	</div>
 </div>
 
+<!-- レイヤの複製 -->
+<div id="dupDialog" class="modal" hidden>
+	<div class="modal-box narrow">
+		<div class="modal-head"><span data-i18n="dlg.dupTitle">Duplicate a text layer</span><button class="icon close" data-close>×</button></div>
+		<div class="modal-body">
+			<p class="hint" data-i18n="dlg.dupHint"></p>
+			<div class="row">
+				<label style="flex:none" data-i18n="dlg.name">Name</label>
+				<input type="text" id="dupName" spellcheck="false">
+			</div>
+			<label class="block-label" data-i18n="dlg.body">Body</label>
+			<textarea id="dupText" spellcheck="false" rows="5"></textarea>
+			<div class="row" style="margin-top:10px; justify-content:flex-end">
+				<button id="dupClear" data-i18n="dlg.dupClear">Clear the body</button>
+				<button id="dupGo" class="primary" data-i18n="dlg.dupGo">Duplicate</button>
+			</div>
+		</div>
+	</div>
+</div>
+
 <!-- フォント追加 -->
 <div id="fontDialog" class="modal" hidden>
 	<div class="modal-box narrow">
-		<div class="modal-head">フォントを追加<button class="icon close" data-close>×</button></div>
+		<div class="modal-head"><span data-i18n="dlg.fontTitle">Add a font</span><button class="icon close" data-close>×</button></div>
 		<div class="modal-body">
-			<p class="hint">
-				PSD が持っているフォント以外を使いたいときに追加する。
-				一覧はこの PC にインストールされているフォント。
-				<b>Photoshop 側にも同じフォントが必要</b>で、無い場合は代替表示になる。
-			</p>
+			<p class="hint" data-i18n="dlg.fontHint"></p>
 			<div class="row">
-				<input type="search" id="fontFilter" placeholder="絞り込み">
+				<input type="search" id="fontFilter" data-i18n-ph="dlg.fontFilter.ph">
 			</div>
 			<div id="sysFontList" class="fs-list"></div>
 			<div class="row" style="margin-top:10px">
-				<input type="text" id="fontManual" placeholder="名前を直接入力 (PostScript 名)">
-				<button id="fontAddGo" class="primary">追加</button>
+				<input type="text" id="fontManual" data-i18n-ph="dlg.fontManual.ph">
+				<button id="fontAddGo" class="primary" data-i18n="dlg.fontAdd">Add</button>
 			</div>
 		</div>
 	</div>
@@ -159,17 +179,13 @@
 <!-- CSV 読み込み -->
 <div id="importDialog" class="modal" hidden>
 	<div class="modal-box">
-		<div class="modal-head">CSV を読み込む<button class="icon close" data-close>×</button></div>
+		<div class="modal-head"><span data-i18n="dlg.csvTitle">Import a CSV</span><button class="icon close" data-close>×</button></div>
 		<div class="modal-body">
-			<p class="hint">
-				<code>lyid</code> 列でレイヤを照合します (並べ替えや改名に強い)。
-				lyid が無い行は <code>path</code> 列で照合します。
-				<code>text</code> 列には書式タグを含められます。
-			</p>
+			<p class="hint" data-i18n="dlg.csvHint"></p>
 			<div class="row">
 				<input type="file" id="csvFile" accept=".csv,text/csv">
-				<button id="csvDry">確認だけ</button>
-				<button id="csvApply" class="primary" disabled>反映する</button>
+				<button id="csvDry" data-i18n="dlg.csvDry">Check only</button>
+				<button id="csvApply" class="primary" disabled data-i18n="dlg.csvApply">Apply</button>
 			</div>
 			<div id="csvReport" class="report"></div>
 		</div>
@@ -179,44 +195,16 @@
 <!-- 保存 -->
 <div id="saveDialog" class="modal" hidden>
 	<div class="modal-box narrow">
-		<div class="modal-head">保存<button class="icon close" data-close>×</button></div>
+		<div class="modal-head"><span data-i18n="dlg.saveTitle">Save</span><button class="icon close" data-close>×</button></div>
 		<div class="modal-body">
 			<div class="row">
-				<label class="chk"><input type="checkbox" id="saveBackup" checked> 元ファイルを .bak に退避</label>
+				<label class="chk"><input type="checkbox" id="saveBackup" checked> <span data-i18n="dlg.saveBackup">Keep the original as .bak</span></label>
 			</div>
 			<div class="row">
-				<input type="text" id="savePath" spellcheck="false" placeholder="空欄なら上書き保存">
-				<button id="saveGo" class="primary">保存</button>
+				<input type="text" id="savePath" spellcheck="false" data-i18n-ph="dlg.savePath.ph">
+				<button id="saveGo" class="primary" data-i18n="dlg.saveGo">Save</button>
 			</div>
-			<p class="hint">
-				編集していないレイヤはバイト単位でそのまま保持されます。
-				表示 ON/OFF はプレビュー用なので保存されません。
-				合成プレビューは Photoshop で開き直すまで更新されません。
-			</p>
-		</div>
-	</div>
-</div>
-
-<!-- レイヤの複製 -->
-<div id="dupDialog" class="modal" hidden>
-	<div class="modal-box narrow">
-		<div class="modal-head">テキストレイヤを複製<button class="icon close" data-close>×</button></div>
-		<div class="modal-body">
-			<p class="hint">
-				選択中のテキストレイヤを複製する。書式・フォント・位置・流し込み枠は
-				複製元をそのまま引き継ぐ (位置を変えたい場合は Photoshop 側で移動)。
-				<b>本文を書き換えれば、実質「新規テキストレイヤの追加」になる。</b>
-			</p>
-			<div class="row">
-				<label style="flex:none">名前</label>
-				<input type="text" id="dupName" spellcheck="false">
-			</div>
-			<label class="block-label">本文 (書式タグを含む)</label>
-			<textarea id="dupText" spellcheck="false" rows="5"></textarea>
-			<div class="row" style="margin-top:10px; justify-content:flex-end">
-				<button id="dupClear">本文を空にする</button>
-				<button id="dupGo" class="primary">複製する</button>
-			</div>
+			<p class="hint" data-i18n="dlg.saveHint"></p>
 		</div>
 	</div>
 </div>
@@ -224,13 +212,13 @@
 <!-- ヘルプ -->
 <div id="helpDialog" class="modal" hidden>
 	<div class="modal-box wide">
-		<div class="modal-head">psdtext の使い方<button class="icon close" data-close>×</button></div>
-		<div class="modal-body" id="helpBody">読み込み中…</div>
+		<div class="modal-head"><span data-i18n="dlg.helpTitle">How to use psdtext</span><button class="icon close" data-close>×</button></div>
+		<div class="modal-body" id="helpBody"></div>
 	</div>
 </div>
 
 <div id="logPanel" hidden>
-	<div class="log-head"><span>ログ</span><button id="logClose" class="icon">×</button></div>
+	<div class="log-head"><span data-i18n="dlg.logTitle">Log</span><button id="logClose" class="icon">×</button></div>
 	<div id="logBody"></div>
 </div>
 
