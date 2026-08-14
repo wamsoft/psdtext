@@ -12,6 +12,50 @@ On release, rename the "Unreleased" heading to the version number and start a ne
 
 ---
 
+## 0.3.0 — 2026-08-15
+
+### Edit as a list
+
+- **Layer names can be changed in the table.** The name column used to be
+  read-only
+- **"Show every layer" lists folders and images too.** Only their name can be
+  changed — the body and formatting cells stay inert
+- **Copy and paste now target the columns you pick**, either with the checkbox
+  in each header or with the body only / formatting only / layer name only /
+  everything but the name / all buttons. Paste (Ctrl+V) starts at the cell the
+  cursor is in and spreads right across the selected columns; with no cell
+  focused it fills them from the top row. A sheet of nothing but translations
+  drops straight in
+- **Copy table** puts the selected columns on the clipboard as tab-separated
+  text. Bodies containing newlines are quoted with `"`, so rows survive the
+  round trip through Excel
+- **The font cell suggests fonts as you type** (local names work too). The
+  suggestions are limited to **the fonts this PSD uses plus the ones you starred
+  (★)**; `…` opens the usual picker for everything else
+
+### Fixed
+
+- **Paths with non-ASCII characters given on the command line now open**
+  (`psdtext 画面.psd`, file associations, shortcut arguments). The encoding was
+  being read wrong
+- **Console log output is no longer mojibake** — `—` and Japanese paths came out
+  garbled
+- **The bottom of the window is no longer cut off when the window is narrow.**
+  The layout assumed a fixed toolbar height, so once the toolbar wrapped, the
+  buttons under the layer tree fell outside the window
+
+### Layer names
+
+- **Rename layers in bulk** from "Rename…" under the tree: find and replace
+  (regular expressions included), a prefix and suffix, and numbering — with a
+  "now → after" list to check before applying. Folders and images count too
+- The number can go **anywhere in the result**: write `{n}` in "Replace with",
+  "Add to the front" or "Add to the end". `{n:3}` sets the width inline
+  (`007`), `{n+10}` shifts it, and it mixes with back-references
+  (`tx_{n:2}_$1`)
+
+---
+
 ## 0.2.1 — 2026-08-14
 
 - **Fixed: the multi-selection pane never went away.** Selecting a single layer
