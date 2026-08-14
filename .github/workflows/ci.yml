@@ -61,6 +61,9 @@ jobs:
           set -euo pipefail
           EXE="${{ steps.exe.outputs.path }}"
           B=http://127.0.0.1:18998
+          # Windows の Git Bash では $PWD が /d/a/... という MSYS 形式になり、
+          # ネイティブの exe から開けない。pwd -W で D:/a/... へ直す。
+          ROOT=$(pwd -W 2>/dev/null || pwd)
 
           "$EXE" --no-browser --port=18998 --no-token --idle-timeout=0 &
           for i in $(seq 1 40); do
@@ -86,7 +89,7 @@ jobs:
             exit 1
           fi
           echo "--- PSD を開く ($PSD) ---"
-          printf "{\"path\":\"%s\"}" "$PWD/$PSD" > open.json
+          printf "{\"path\":\"%s\"}" "$ROOT/$PSD" > open.json
           curl -sf -X POST -H 'Content-Type: application/json' \
             --data-binary @open.json $B/api/psd/open -o opened.json
           python3 -c "
@@ -125,7 +128,7 @@ jobs:
           "
 
           echo "--- 別名保存して読み直す ---"
-          printf '{"path":"%s/out.psd"}' "$PWD" > save.json
+          printf '{"path":"%s/out.psd"}' "$ROOT" > save.json
           curl -sf -X POST -H 'Content-Type: application/json' \
             --data-binary @save.json $B/api/psd/save -o saved.json
           python3 -c "
