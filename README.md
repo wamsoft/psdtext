@@ -70,6 +70,14 @@ body selected, so you can keep retyping; **Alt+↑/↓** moves between text laye
 The "List" toggles on the left narrow the tree down to text / unsaved / visible
 layers.
 
+The font list shows **the name you know a font by** (read out of the font files,
+so Japanese fonts show their Japanese names) with the PostScript name the PSD
+stores alongside; either is searchable. `★` puts a font in a **preset** so it
+comes up first next time, and presets are named — one per project works well.
+
+The window size and position are remembered for next time (when the browser is
+already running it creates the window itself, so this does not always apply).
+
 **When psdtext exits, its browser window closes itself** (browsers that refuse to
 close a window say so on the page instead) — so you never end up with a pile of
 dead-looking windows and no idea which one is live.

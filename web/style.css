@@ -569,6 +569,23 @@ input.hex { width: 76px; font-family: Consolas, monospace; }
 
 .modal-box.narrow { width: min(480px, 92vw); }
 #sysFontList { height: 260px; }
+/* フォント一覧の 1 行: ★ / 名前 (日本語があればそちら) / PostScript 名 */
+.font-row { display: flex; align-items: baseline; gap: 8px; }
+.fs-star { flex: none; width: 14px; color: var(--fg-dim); cursor: pointer; }
+.fs-star.on { color: var(--warn); }
+.fs-star:hover { color: var(--accent); }
+.fs-name { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fs-sub {
+	flex: 1;
+	min-width: 0;
+	font-size: 11px;
+	color: var(--fg-dim);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	text-align: right;
+}
+
 .fs-group {
 	padding: 3px 8px;
 	font-size: 11px;

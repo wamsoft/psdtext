@@ -41,7 +41,7 @@ jobs:
           - { name: linux,   os: ubuntu-latest,  experimental: false }
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Resolve the version
         id: ver
@@ -87,7 +87,7 @@ jobs:
         shell: bash
         run: ls -la dist/
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: psdtext-${{ matrix.name }}
           path: |
@@ -103,9 +103,9 @@ jobs:
     if: always() && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true

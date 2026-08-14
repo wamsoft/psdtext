@@ -32,7 +32,8 @@ const state = {
 	showBounds: true,
 	pendingCsv: null,
 	needFit: false,       // 次の描画後に「全体表示」へ合わせる
-	sysFonts: [],
+	sysFonts: [],         // この PC のフォント {postscript, family, localName, style}
+	fontByPs: new Map(),  // PostScript 名 → 上の項目
 	redrawTimer: 0,
 	// 書式パネルが今どこを編集しているか
 	//   {kind:'base'}              レイヤ全体の初期書式 (先頭のマーク)
@@ -935,12 +936,12 @@ function renderBasePanel(t) {
 	const st = tg.styleAtHead(bodyText(), baseOf(t));
 
 	const seen = new Set();
-	for (const f of [st.font, ...(t.fonts || [])]) {
+	for (const f of [st.font, ...presetFonts(), ...(t.fonts || [])]) {
 		if (!f || seen.has(f)) continue;
 		seen.add(f);
 		const o = document.createElement('option');
 		o.value = f;
-		o.textContent = f + (fontAvailable(f) ? '' : '  ' + tr('edit.fontNotHere'));
+		o.textContent = fontLabel(f) + (fontAvailable(f) ? '' : '  ' + tr('edit.fontNotHere'));
 		sel.appendChild(o);
 	}
 	sel.value = st.font || '';
@@ -1030,8 +1031,9 @@ function valueRow(t, attr, specs, inherited) {
 			// フォントは一覧から選ぶ。名前を直に書ける欄はダイアログの中。
 			const btn = document.createElement('button');
 			btn.className = 'mini font-pick';
-			btn.textContent = value || tr('fmt.pickFont');
-			btn.title = tr('fmt.pickFont.title');
+			btn.textContent = value ? fontLabel(value) : tr('fmt.pickFont');
+			btn.title = value ? value + ' — ' + tr('fmt.pickFont.title')
+			                  : tr('fmt.pickFont.title');
 			btn.addEventListener('click', () => openFontDialog('mark'));
 			box.appendChild(btn);
 			if (value && !fontAvailable(value)) {
@@ -1577,7 +1579,8 @@ async function moveLayer(up) {
 //---------------------------------------------------------------------------
 // フォント追加
 //---------------------------------------------------------------------------
-/// target は 'base' (レイヤの初期書式) か 'mark' (選択中のマーク / 範囲)
+/// target は 'base' (レイヤの初期書式) / 'mark' (選択中のマーク・範囲) /
+/// 'multi' (選択中のレイヤすべて)
 async function openFontDialog(target) {
 	if (!curText()) { toast(tr('msg.needText'), true); return; }
 	state.fontTarget = target || 'base';
@@ -1587,28 +1590,42 @@ async function openFontDialog(target) {
 		state.fontTarget === 'multi' ? 'dlg.fontForMulti' :
 		state.fontTarget === 'base'  ? 'dlg.fontForBase'  : 'dlg.fontForMark');
 
-	// まず PSD が持っているフォントだけで一覧を出す。システムフォントの取得は
-	// 許可待ちで止まることがあり、それを待ってから描くと一覧が空のままになる。
+	renderPresetBar();
 	renderSysFonts();
-	if (!state.sysFonts.length) {
-		try {
-			// Local Font Access API (Chromium)。使えなければ手入力に頼る。
-			if (window.queryLocalFonts) {
-				const list = await window.queryLocalFonts();
-				const names = new Set();
-				for (const f of list) names.add(f.postscriptName || f.fullName);
-				state.sysFonts = [...names].sort();
-				renderSysFonts();
-			}
-		} catch (e) { /* 権限拒否など。手入力へ */ }
-	}
+	await loadSystemFonts();
+	renderSysFonts();
+}
+
+/// この PC のフォント一覧をサーバから取る (一度だけ)。
+/// PSD が指すのは PostScript 名だが、人が覚えているのは日本語名なので、
+/// フォントファイルの名前テーブルから両方もらう。
+async function loadSystemFonts() {
+	if (state.sysFonts.length) return;
+	try {
+		const r = await app.get('/api/app/fonts');
+		state.sysFonts = (r.fonts || []).filter(f => f.postscript);
+		state.fontByPs = new Map(state.sysFonts.map(f => [f.postscript, f]));
+	} catch (e) { /* 取れなければ手入力に頼る */ }
+}
+
+/// 画面に出すフォント名。日本語名があれば添える。
+function fontLabel(ps) {
+	const f = state.fontByPs && state.fontByPs.get(ps);
+	const local = f && (f.localName || '');
+	return local && local !== ps ? `${local} (${ps})` : ps;
 }
 
 function renderSysFonts() {
 	const host = $('#sysFontList');
 	host.textContent = '';
-	const f = $('#fontFilter').value.trim().toLowerCase();
-	const hit = (n) => !f || n.toLowerCase().includes(f);
+	const q = $('#fontFilter').value.trim().toLowerCase();
+	/// 日本語名・英語名・PostScript 名のどれで探しても当たるように
+	const hit = (ps) => {
+		if (!q) return true;
+		const f = state.fontByPs && state.fontByPs.get(ps);
+		const names = [ps, f && f.localName, f && f.family, f && f.style];
+		return names.some(n => n && n.toLowerCase().includes(q));
+	};
 
 	const group = (label) => {
 		const d = document.createElement('div');
@@ -1616,32 +1633,100 @@ function renderSysFonts() {
 		d.textContent = label;
 		host.appendChild(d);
 	};
-	const row = (n) => {
+	const row = (ps, preset) => {
 		const d = document.createElement('div');
-		d.className = 'fs-row';
-		d.textContent = n + (fontAvailable(n) ? '' : '  ' + tr('edit.fontNotHere'));
-		d.style.fontFamily = `"${n}", sans-serif`;
-		d.addEventListener('click', () => pickFont(n));
+		d.className = 'fs-row font-row';
+
+		const star = document.createElement('span');
+		star.className = 'fs-star' + (isPresetFont(ps) ? ' on' : '');
+		star.textContent = isPresetFont(ps) ? '★' : '☆';
+		star.title = tr('dlg.fontPresetToggle');
+		star.addEventListener('click', (e) => { e.stopPropagation(); togglePresetFont(ps); });
+
+		const name = document.createElement('span');
+		name.className = 'fs-name';
+		name.style.fontFamily = `"${ps}", sans-serif`;
+		const f = state.fontByPs && state.fontByPs.get(ps);
+		name.textContent = (f && f.localName) || (f && f.family) || ps;
+
+		const sub = document.createElement('span');
+		sub.className = 'fs-sub';
+		sub.textContent = ps + (fontAvailable(ps) ? '' : '  ' + tr('edit.fontNotHere'));
+
+		d.append(star, name, sub);
+		d.addEventListener('click', () => pickFont(ps));
 		host.appendChild(d);
 	};
 
-	// この PSD が持っているフォントを先に出す。Photoshop 側にも確実にある
-	// ぶんなので、まずここから選べるほうが安全。
+	// よく使うぶん → この PSD が持っているぶん → この PC のぶん、の順。
+	// 上ふたつは Photoshop 側にも確実にあるので、まずそこから選べるほうが安全。
 	const t = curText();
+	const preset = presetFonts().filter(hit);
+	if (preset.length) {
+		group(tr('dlg.fontPreset', state.settings.fontPreset || tr('dlg.fontPresetDefault')));
+		preset.forEach(ps => row(ps, true));
+	}
 	const own = [...new Set(t ? (t.fonts || []) : [])].filter(hit);
 	if (own.length) {
 		group(tr('dlg.fontOwn'));
-		own.forEach(row);
+		own.forEach(ps => row(ps));
 	}
 	if (state.sysFonts.length) {
 		group(tr('dlg.fontSystem'));
-		state.sysFonts.filter(hit).slice(0, 400).forEach(row);
+		state.sysFonts.map(f => f.postscript).filter(hit).slice(0, 500).forEach(ps => row(ps));
 	} else {
 		const p = document.createElement('p');
 		p.className = 'hint';
 		p.textContent = tr('dlg.fontNoList');
 		host.appendChild(p);
 	}
+}
+
+//---------------------------------------------------------------------------
+// フォントのプリセット (よく使うぶんを名前を付けて残す)
+//---------------------------------------------------------------------------
+function presetFonts() {
+	const all = state.settings.fontPresets || {};
+	const name = state.settings.fontPreset || Object.keys(all)[0];
+	return (name && all[name]) || [];
+}
+
+function isPresetFont(ps) { return presetFonts().includes(ps); }
+
+function togglePresetFont(ps) {
+	const all = Object.assign({}, state.settings.fontPresets || {});
+	const name = state.settings.fontPreset || Object.keys(all)[0] || tr('dlg.fontPresetDefault');
+	const list = (all[name] || []).slice();
+	const i = list.indexOf(ps);
+	if (i >= 0) list.splice(i, 1);
+	else list.push(ps);
+	all[name] = list;
+	state.settings.fontPresets = all;
+	state.settings.fontPreset = name;
+	app.post('/api/app/settings', { fontPresets: all, fontPreset: name }).catch(() => {});
+	renderSysFonts();
+	renderPresetBar();
+}
+
+/// プリセットの切り替え / 追加
+function renderPresetBar() {
+	const sel = $('#fontPresetSel');
+	const all = state.settings.fontPresets || {};
+	const names = Object.keys(all);
+	sel.textContent = '';
+	for (const n of names) {
+		const o = document.createElement('option');
+		o.value = n;
+		o.textContent = `${n} (${all[n].length})`;
+		sel.appendChild(o);
+	}
+	if (!names.length) {
+		const o = document.createElement('option');
+		o.value = '';
+		o.textContent = tr('dlg.fontPresetNone');
+		sel.appendChild(o);
+	}
+	sel.value = state.settings.fontPreset || names[0] || '';
 }
 
 /// 一覧 / 手入力から選ばれたフォントを、開いたときの適用先へ入れる
@@ -1827,6 +1912,8 @@ function sheetCell(i, key, value, orig) {
 	else if (key !== 'text') { el.type = 'text'; el.spellcheck = false; }
 	el.value = (key === 'size' && value) ? (Math.round(value * 10) / 10) : (value ?? '');
 	if (key === 'text') { el.rows = Math.min(4, String(value || '').split('\n').length); }
+	// フォントは PostScript 名がそのまま値。人が見て分かるよう日本語名を添える
+	if (key === 'font' && value) el.title = fontLabel(value);
 	el.dataset.row = String(i);
 	el.dataset.key = key;
 	el.addEventListener('input', onSheetInput);
@@ -2530,6 +2617,22 @@ async function main() {
 	$('#fontAddBtn').addEventListener('click', () => openFontDialog('base'));
 	$('#fontFilter').addEventListener('input', renderSysFonts);
 	$('#fontAddGo').addEventListener('click', () => pickFont($('#fontManual').value));
+	$('#fontPresetSel').addEventListener('change', (e) => {
+		state.settings.fontPreset = e.target.value;
+		app.post('/api/app/settings', { fontPreset: e.target.value }).catch(() => {});
+		renderSysFonts();
+	});
+	$('#fontPresetNew').addEventListener('click', () => {
+		const name = prompt(tr('dlg.fontPresetAsk'), '');
+		if (!name) return;
+		const all = Object.assign({}, state.settings.fontPresets || {});
+		if (!all[name]) all[name] = [];
+		state.settings.fontPresets = all;
+		state.settings.fontPreset = name;
+		app.post('/api/app/settings', { fontPresets: all, fontPreset: name }).catch(() => {});
+		renderPresetBar();
+		renderSysFonts();
+	});
 	document.querySelectorAll('.align').forEach(b =>
 		b.addEventListener('click', () => setAlign(Number(b.dataset.align))));
 
@@ -2562,6 +2665,7 @@ async function main() {
 	});
 
 	setupDrop();
+	watchWindowBox();
 	watchServer();
 
 	// --- 起動時に開くファイル ---
@@ -2618,6 +2722,33 @@ function setupDrop() {
 		}
 		toast(tr('msg.dropPsd', file.name), true);
 	});
+}
+
+//---------------------------------------------------------------------------
+/// ウィンドウの大きさと位置を覚えておく (次に開いたとき同じ場所に出す)。
+/// 起動時のブラウザ引数はサーバ側が settings.json から組み立てるので、
+/// ここでは記録するだけ。
+function watchWindowBox() {
+	let last = '';
+	const save = () => {
+		const box = {
+			w: window.outerWidth, h: window.outerHeight,
+			x: window.screenX, y: window.screenY,
+		};
+		if (box.w < 300 || box.h < 200) return;      // 最小化中などは覚えない
+		const key = [box.w, box.h, box.x, box.y].join(',');
+		if (key === last) return;
+		last = key;
+		app.post('/api/app/settings', { window: box }).catch(() => {});
+	};
+	let timer = 0;
+	window.addEventListener('resize', () => {
+		clearTimeout(timer);
+		timer = setTimeout(save, 800);
+	});
+	// 位置だけ動かしたときはイベントが来ないので、ときどき見る
+	setInterval(save, 5000);
+	window.addEventListener('pagehide', save);
 }
 
 //---------------------------------------------------------------------------

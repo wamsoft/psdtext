@@ -7,6 +7,7 @@
 //---------------------------------------------------------------------------
 #include "psd_module.h"
 #include "document.h"
+#include "fonts.h"
 #include "settings.h"
 
 #include <appserve/appserve.h>
@@ -37,6 +38,24 @@ public:
 		reg.route("/api/app/startup", Affinity::Any, [this](const Request&) {
 			Json j = Json::object();
 			j.set("open", Json(startup_));
+			return Response::json(j);
+		});
+
+		// この PC のフォント一覧。
+		// PSD が指すのは PostScript 名だが、人が探すのは日本語名なので両方返す。
+		// ブラウザの Local Font Access は許可待ちで止まるので、こちらで読む。
+		reg.route("/api/app/fonts", Affinity::Any, [](const Request&) {
+			Json arr = Json::array();
+			for (const auto& f : systemFonts()) {
+				Json o = Json::object();
+				o.set("postscript", Json(f.postscript));
+				o.set("family",     Json(f.family));
+				o.set("localName",  Json(f.localFamily));
+				o.set("style",      Json(f.style));
+				arr.push(std::move(o));
+			}
+			Json j = Json::object();
+			j.set("fonts", std::move(arr));
 			return Response::json(j);
 		});
 

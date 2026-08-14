@@ -28,7 +28,7 @@ jobs:
           - { name: linux,   os: ubuntu-latest,  experimental: false }
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # 書式マークのタグ組み替えは UI から目視で確かめにくいので単体で押さえる
       - name: Formatting-mark unit test
@@ -54,10 +54,13 @@ jobs:
       - name: Fetch a PSD with text layers
         shell: bash
         run: |
-          # psdparse のテスト資材 (テキストレイヤ / 複数フォント / 縦書き入り)
+          # psdparse のテスト資材
+          #   textboxsample : テキストレイヤ / 複数フォント / 縦書き入り
+          #   textmask      : 上記のテキストレイヤにマスクを付けたもの
           mkdir -p testdata
           curl -sfL -o testdata/textboxsample.psd             https://raw.githubusercontent.com/wamsoft/psdparse/master/tests/data/textboxsample.psd
-          ls -la testdata/
+          curl -sfL -o mask/textmask.psd --create-dirs        https://raw.githubusercontent.com/wamsoft/psdparse/master/tests/data/textmask.psd
+          ls -la testdata/ mask/
 
       - name: Smoke test
         shell: bash
@@ -145,6 +148,44 @@ jobs:
           assert d['dirty'] == 0, d
           assert any(t['text'] == 'CI smoke test ✅' for t in d['texts']), d['texts']
           print('saved and reloaded:', d['path'])
+          "
+
+          # 多言語版の下地づくりは「テキストレイヤをマスクごと複製する」形なので、
+          # 複製 → 保存 → 読み直しでマスクが落ちないことを見る。マスクが落ちると
+          # レイヤの見た目 (アルファ) が変わるので、元と複製を突き合わせれば分かる。
+          echo "--- マスク付きテキストレイヤの複製 ---"
+          printf '{"path":"%s/mask/textmask.psd"}' "$ROOT" > openmask.json
+          curl -sf -X POST -H 'Content-Type: application/json' \
+            --data-binary @openmask.json $B/api/psd/open -o mask.json
+          SRC=$(python3 -c "
+          import json
+          d = json.load(open('mask.json', encoding='utf-8'))
+          print(d['texts'][0]['index'])
+          ")
+          printf '{"index":%s,"name":"copy"}' "$SRC" > dup.json
+          curl -sf -X POST -H 'Content-Type: application/json' \
+            --data-binary @dup.json $B/api/psd/duplicate -o dup_out.json
+          COPY=$(python3 -c "
+          import json
+          print(json.load(open('dup_out.json', encoding='utf-8'))['index'])
+          ")
+          printf '{"path":"%s/masked.psd"}' "$ROOT" > savemask.json
+          curl -sf -X POST -H 'Content-Type: application/json' \
+            --data-binary @savemask.json $B/api/psd/save > /dev/null
+          # 保存したものを開き直して、元と複製の見た目を突き合わせる
+          printf '{"path":"%s/masked.psd"}' "$ROOT" > reopen.json
+          curl -sf -X POST -H 'Content-Type: application/json' \
+            --data-binary @reopen.json $B/api/psd/open > /dev/null
+          curl -sf "$B/api/psd/image?index=$SRC"  -o a.bin
+          curl -sf "$B/api/psd/image?index=$COPY" -o b.bin
+          python3 -c "
+          a = open('a.bin','rb').read()
+          b = open('b.bin','rb').read()
+          assert len(a) == len(b) and len(a) > 0, (len(a), len(b))
+          alpha = a[3::4]
+          assert min(alpha) < 250 and max(alpha) > 5, 'the mask does not seem applied'
+          assert a == b, 'the duplicate lost its mask (pixels differ)'
+          print('mask survived duplicate+save: %d bytes identical' % len(a))
           "
 
           echo "--- REPL 経由で停止 ---"
