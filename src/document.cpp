@@ -74,6 +74,45 @@ std::string crToLf(const std::string& s)
 	return o;
 }
 
+//---------------------------------------------------------------------------
+/// 書き戻した書式を、パース済みのラン構成へも反映する。
+///
+/// psdparse の setLayerRichText は編集後にランの**長さだけ**追随させ、書式は
+/// 元のまま残す (EngineData 側だけが新しい)。そのままだと
+///   - 次に読む「基準」(先頭ランの書式) が古いまま = 初期書式パネルが嘘をつく
+///   - toTagged が古い書式でタグを組み直す (行揃え変更のとき)
+/// になるので、こちらで合わせておく。parseTagged が絶対値を返すのでそのまま
+/// 写せばよい。
+void syncParsedRunStyles(psd::TextLayerData& td,
+                         const std::vector<psd::TextRunSpec>& runs)
+{
+	for (size_t i = 0; i < td.runs.size() && i < runs.size(); ++i) {
+		const psd::RunStyleEdit& e = runs[i].style;
+		psd::TextStyleRun& r = td.runs[i];
+		if (e.hasFont && !e.font.empty()) r.font = psd::utf8ToU16(e.font);
+		if (e.hasSize)  r.fontSize = e.size;
+		if (e.hasColor) {
+			r.hasColor = true;
+			for (int k = 0; k < 4; ++k) r.color[k] = e.color[k];
+		}
+		if (e.hasBold)      r.bold      = e.bold;
+		if (e.hasItalic)    r.italic    = e.italic;
+		if (e.hasUnderline) r.underline = e.underline;
+	}
+}
+
+/// t.base (タグ解釈の原点 = 読み込み時の先頭ランの書式) を JSON へ出せる形に
+/// 写す。UI の「基準」パネルと仮描画の既定値がこれを読む。
+void fillBaseStyle(TextRow& t)
+{
+	t.font      = t.base.hasFont ? t.base.font : std::string();
+	t.fontSize  = t.base.hasSize ? t.base.size : 0.0;
+	t.color     = t.base.colorHex();
+	t.bold      = t.base.bold;
+	t.italic    = t.base.italic;
+	t.underline = t.base.underline;
+}
+
 std::string lfToCr(const std::string& s)
 {
 	std::string o;
@@ -269,17 +308,14 @@ void Document::rebuildIndex()
 		t.text          = stripTrailingParagraph(crToLf(u16ToUtf8(l.textData.text)));
 		t.justification = l.textData.justification;
 		t.left = r.left; t.top = r.top; t.right = r.right; t.bottom = r.bottom;
-		if (!l.textData.runs.empty()) {
-			t.font     = u16ToUtf8(l.textData.runs[0].font);
-			t.fontSize = l.textData.runs[0].fontSize;
-		}
+		t.base = baseFromRuns(l.textData.runs);
+		fillBaseStyle(t);
 		for (const auto& p : l.textData.paragraphs) t.paragraphJust.push_back(p.justification);
 
 		// 書式をタグで畳んだ表現を作る。書式が一様なら素の本文と同じになる。
 		// toTagged は末尾の段落マークを剥がす前の長さで組まれた runs を使うので、
 		// 剥がしたぶんは末尾ランが吸収する (取りこぼしは関数側で補われる)。
-		t.tagged = toTagged(t.text, l.textData.runs, l.textData.paragraphs,
-		                    baseFromRuns(l.textData.runs));
+		t.tagged = toTagged(t.text, l.textData.runs, l.textData.paragraphs, t.base);
 		t.styled = hasTags(t.tagged);
 		t.original = t.tagged;
 
@@ -378,8 +414,13 @@ Json textRowJson(const TextRow& t)
 		o.set("boxWidth",  Json(t.boundsR - t.boundsL));
 		o.set("boxHeight", Json(t.boundsB - t.boundsT));
 	}
+	// 基準の書式 (UI の「基準」パネルと仮描画の既定値)
 	o.set("font",          Json(t.font));
 	o.set("fontSize",      Json(t.fontSize));
+	o.set("color",         Json(t.color));
+	o.set("bold",          Json(t.bold));
+	o.set("italic",        Json(t.italic));
+	o.set("underline",     Json(t.underline));
 	o.set("justification", Json(t.justification));
 	o.set("dirty",         Json(t.dirty));
 	Json rect = Json::array();
@@ -412,15 +453,13 @@ bool Document::setText(int index, const std::string& utf8, std::string& err,
 		if (t.index != index) continue;
 		if (t.tagged == utf8) return true;             // 変化なし
 
-		// タグを解析してラン構成へ戻す。base は現在の先頭ランの書式なので、
-		// タグの無い部分は元の見た目のまま保たれる。
-		const psd::LayerInfo& l = psd_->layerList[(size_t)index];
-		StyleSpec base = baseFromRuns(l.textData.runs);
-
+		// タグを解析してラン構成へ戻す。base は読み込み時の先頭ランの書式で
+		// 固定なので、タグの無い部分は元の見た目のまま保たれ、[/color] などの
+		// 「基準へ戻す」は何度編集しても同じ書式を指す。
 		std::string plain;
 		std::vector<psd::TextRunSpec> runs;
 		std::vector<psd::TextParagraphSpec> paras;
-		parseTagged(utf8, base, plain, runs, paras, warnOut);
+		parseTagged(utf8, t.base, plain, runs, paras, warnOut);
 
 		// PSD 側は CR 区切り + 末尾に段落マーク。長さもそれに合わせる。
 		std::string cr = ensureTrailingParagraph(lfToCr(plain));
@@ -432,8 +471,10 @@ bool Document::setText(int index, const std::string& utf8, std::string& err,
 		t.tagged = utf8;
 		t.styled = hasTags(utf8);
 		t.dirty  = (t.tagged != t.original);
+		psd::LayerInfo& nl = psd_->layerList[(size_t)index];
+		syncParsedRunStyles(nl.textData, runs);
 		t.paragraphJust.clear();
-		for (const auto& p : psd_->layerList[(size_t)index].textData.paragraphs)
+		for (const auto& p : nl.textData.paragraphs)
 			t.paragraphJust.push_back(p.justification);
 		return true;
 	}
@@ -453,9 +494,8 @@ bool Document::setJustification(int index, int paraIndex, int just, std::string&
 		t.paragraphJust.clear();
 		for (const auto& p : l.textData.paragraphs) t.paragraphJust.push_back(p.justification);
 		t.justification = l.textData.justification;
-		// 行揃えはタグ表現にも出るので作り直す
-		t.tagged = toTagged(t.text, l.textData.runs, l.textData.paragraphs,
-		                    baseFromRuns(l.textData.runs));
+		// 行揃えはタグ表現にも出るので作り直す (基準は読み込み時のまま)
+		t.tagged = toTagged(t.text, l.textData.runs, l.textData.paragraphs, t.base);
 		t.styled = hasTags(t.tagged);
 		t.dirty  = (t.tagged != t.original);
 		return true;
@@ -477,17 +517,10 @@ int Document::duplicateLayer(int index, const std::string& newName, std::string&
 
 	// 複製でインデックスがずれるので索引を作り直す。編集済みの本文は PSDFile
 	// 側にあるので失われないが、dirty 表示は作り直しになる。
+	// 複製前後で lyid は変わらない (複製側は新規採番) ので lyid で対応付ける。
 	std::vector<TextRow> before = texts_;
 	rebuildIndex();
-	for (auto& t : texts_) {
-		for (const auto& b : before) {
-			// 複製前後で lyid は変わらない (複製側は新規採番) ので lyid で対応付ける
-			if (b.lyid == 0 || b.lyid != t.lyid) continue;
-			t.original = b.original;
-			t.dirty    = (t.tagged != t.original);
-			break;
-		}
-	}
+	inheritTextState(before, true);
 	appserve::logI("duplicated layer " + std::to_string(index) + " -> " + std::to_string(ni));
 	return ni;
 }
@@ -512,15 +545,34 @@ bool Document::setName(int index, const std::string& utf8, std::string& err)
 	// 側に入っているので、rebuild しても失われない (dirty 表示だけ作り直す)。
 	std::vector<TextRow> before = texts_;
 	rebuildIndex();
+	inheritTextState(before, false);
+	return true;
+}
+
+//---------------------------------------------------------------------------
+/// rebuildIndex の後に、引き継ぐべき編集状態を戻す。
+///
+/// 本文そのものは PSDFile 側にあるので rebuild しても残るが、
+///   - original (読み込み時のタグ表現) は Document しか持っていない
+///   - base (タグ解釈の原点) は「読み込み時の先頭ラン」で、rebuild すると
+///     編集後のランから作り直されてしまう
+/// ので、両方戻したうえでタグ表現を組み直す。
+void Document::inheritTextState(const std::vector<TextRow>& before, bool byLyid)
+{
 	for (auto& t : texts_) {
 		for (const auto& b : before) {
-			if (b.index != t.index) continue;
+			bool hit = byLyid ? (b.lyid != 0 && b.lyid == t.lyid) : (b.index == t.index);
+			if (!hit) continue;
 			t.original = b.original;
-			t.dirty    = (t.text != t.original);
+			t.base     = b.base;
+			fillBaseStyle(t);
+			const psd::LayerInfo& l = psd_->layerList[(size_t)t.index];
+			t.tagged = toTagged(t.text, l.textData.runs, l.textData.paragraphs, t.base);
+			t.styled = hasTags(t.tagged);
+			t.dirty  = (t.tagged != t.original);
 			break;
 		}
 	}
-	return true;
 }
 
 //---------------------------------------------------------------------------

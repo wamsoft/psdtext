@@ -11,6 +11,8 @@
 
 #include <appserve/json.h>
 
+#include "richtext.h"
+
 namespace psd { class PSDFile; }
 
 namespace psdtext {
@@ -47,8 +49,19 @@ struct TextRow {
 	std::string text;          ///< UTF-8。段落区切りは \n (PSD の \r から変換済み)
 	std::string tagged;        ///< 書式をタグで埋め込んだ形 (編集/CSV はこちらが正)
 	std::string original;      ///< 読み込み時の tagged (差分表示 / 復元用)
-	std::string font;          ///< 先頭ランのフォント (一覧表示用)
-	double      fontSize = 0;  ///< 先頭ランのサイズ
+	// --- 基準の書式 --------------------------------------------------------
+	// タグは「読み込んだ時点の先頭ランの書式」からの差分として書かれる。
+	// 編集するとランの書式は動くが、基準はここに固定しておく:
+	//   - 動かすと [/color] (基準へ戻す) の意味が編集ごとに変わってしまう
+	//   - 本文の頭に置いた指定が基準へ吸われてしまい、タグ表現が読み込み時と
+	//     同じなのに見た目が違う = 未保存判定も「元に戻す」も効かなくなる
+	StyleSpec   base;          ///< タグ解釈の原点 (読み込み時のまま)
+	std::string font;          ///< base のフォント (一覧表示 / UI 用)
+	double      fontSize = 0;  ///< base のサイズ
+	std::string color = "#000000";  ///< base の色
+	bool        bold = false;
+	bool        italic = false;
+	bool        underline = false;
 	int         justification = 0;
 	bool        dirty = false;
 	bool        styled = false;  ///< 複数の書式を持つ (タグが付いている)
@@ -146,6 +159,8 @@ public:
 
 private:
 	void rebuildIndex();
+	/// rebuildIndex の後に original / base を戻してタグ表現を組み直す
+	void inheritTextState(const std::vector<TextRow>& before, bool byLyid);
 	int  findByLyid(int lyid) const;
 	int  findByPath(const std::string& path) const;
 

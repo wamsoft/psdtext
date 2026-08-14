@@ -189,6 +189,12 @@ psd::RunStyleEdit StyleSpec::toRunStyleEdit() const
 	return e;
 }
 
+std::string StyleSpec::colorHex() const
+{
+	if (!hasColor) return "#000000";
+	return colorToHex(color);
+}
+
 bool StyleSpec::sameAs(const StyleSpec& o) const
 {
 	if (hasFont != o.hasFont || (hasFont && font != o.font)) return false;
@@ -363,24 +369,15 @@ void parseTagged(const std::string& tagged, const StyleSpec& base,
 		if (curUnits > 0) {
 			psd::TextRunSpec rs;
 			rs.length = (int)curUnits;
-			// base との差分だけ has* を立てる (指定の無い書式は雛形のまま残す)
-			StyleSpec diff;
-			if (curStyle.hasFont && (!base.hasFont || curStyle.font != base.font)) {
-				diff.hasFont = true; diff.font = curStyle.font;
-			}
-			if (curStyle.hasSize && (!base.hasSize ||
-			                         std::fabs(curStyle.size - base.size) > 0.01)) {
-				diff.hasSize = true; diff.size = curStyle.size;
-			}
-			if (curStyle.hasColor && (!base.hasColor ||
-			                          colorToHex(curStyle.color) != colorToHex(base.color))) {
-				diff.hasColor = true;
-				for (int i = 0; i < 4; ++i) diff.color[i] = curStyle.color[i];
-			}
-			if (curStyle.bold != base.bold)           { diff.hasBold = true; diff.bold = curStyle.bold; }
-			if (curStyle.italic != base.italic)       { diff.hasItalic = true; diff.italic = curStyle.italic; }
-			if (curStyle.underline != base.underline) { diff.hasUnderline = true; diff.underline = curStyle.underline; }
-			rs.style = diff.toRunStyleEdit();
+			// 書式は **絶対値** で渡す (差分ではない)。
+			//
+			// psdparse は書き戻すときにラン構成を作り直すが、指定の無い属性は
+			// 「同じ位置にあった元のラン」から引き継ぐ。差分だけ渡すと、マーク
+			// を足したり消したりしてラン構成が変わった瞬間に、無関係なランの
+			// 書式が混ざり込む (基準へ戻したつもりが元の 2 番目のランの書式に
+			// なる、等)。curStyle は base から積み上げた状態そのままなので、
+			// そのまま渡せば「タグの内容だけで書式が決まる」形になる。
+			rs.style = curStyle.toRunStyleEdit();
 			runsOut.push_back(rs);
 		}
 		curStyle = next;

@@ -44,6 +44,8 @@ struct StyleSpec {
 	psd::RunStyleEdit toRunStyleEdit() const;
 	/// 表示上の差が無いか (タグを出す必要があるか)
 	bool sameAs(const StyleSpec& o) const;
+	/// 色を "#RRGGBB" で (hasColor が false なら黒)
+	std::string colorHex() const;
 };
 
 //---------------------------------------------------------------------------
@@ -67,7 +69,7 @@ StyleSpec baseFromRuns(const std::vector<psd::TextStyleRun>& runs);
 //---------------------------------------------------------------------------
 /// タグ付き文字列を解析してラン構成へ戻す。
 ///   plainOut  : タグを除いた本文 (改行は \n)
-///   runsOut   : length は UTF-16 単位。style は base からの差分だけ has* が立つ
+///   runsOut   : length は UTF-16 単位。style は絶対値 (base + タグの積み上げ)
 ///   parasOut  : 段落ごとの length と行揃え
 /// 解析は失敗しない設計 (未知タグは文字として残す)。err は警告の集約。
 void parseTagged(const std::string& tagged, const StyleSpec& base,
