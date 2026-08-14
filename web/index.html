@@ -79,27 +79,8 @@
 		<div class="pane-title" data-i18n="edit.title">Edit</div>
 		<div id="editMeta" class="meta"></div>
 
-		<div id="styleBar" class="style-bar">
-			<label><span data-i18n="edit.font">Font</span>
-				<select id="fontSel" disabled></select>
-			</label>
-			<button id="fontAddBtn" class="mini" disabled data-i18n-title="edit.font.add">＋</button>
-			<label><span data-i18n="edit.size">Size</span>
-				<input type="number" id="sizeInput" class="num" min="1" max="2000" step="0.5" disabled>
-			</label>
-			<span class="align-group">
-				<button class="mini align" data-align="0" disabled data-i18n-title="edit.alignL">⯇</button>
-				<button class="mini align" data-align="2" disabled data-i18n-title="edit.alignC">⯈⯇</button>
-				<button class="mini align" data-align="1" disabled data-i18n-title="edit.alignR">⯈</button>
-			</span>
-			<span class="style-group">
-				<button class="mini" id="boldBtn" disabled data-i18n-title="edit.bold"><b>B</b></button>
-				<button class="mini" id="italicBtn" disabled data-i18n-title="edit.italic"><i>I</i></button>
-				<button class="mini" id="underBtn" disabled data-i18n-title="edit.under"><u>U</u></button>
-			</span>
-		</div>
-		<p class="hint" id="styleHint" data-i18n="edit.styleHint"></p>
-
+		<!-- 位置と流し込み枠。上の「位置」表示のすぐ下に置いて、元の値と
+		     見比べながら数値を入れられるようにする。 -->
 		<div id="placeBar" class="style-bar">
 			<label><span data-i18n="edit.pos">Position</span>
 				<input type="number" id="posX" class="num" step="1" disabled data-i18n-title="edit.posX.title">
@@ -112,7 +93,51 @@
 			<span id="placeHint" class="status"></span>
 		</div>
 
-		<textarea id="editText" spellcheck="false" data-i18n-ph="edit.text.ph" disabled></textarea>
+		<!-- カーソルが基準のところ (手前に書式マークが無い) にいるとき:
+		     レイヤ全体の初期書式 -->
+		<div id="basePanel" class="fmt-panel">
+			<div class="fmt-title" data-i18n="fmt.baseTitle">Initial formatting</div>
+			<div class="style-bar">
+				<label><span data-i18n="edit.font">Font</span>
+					<select id="fontSel" disabled></select>
+				</label>
+				<button id="fontAddBtn" class="mini" disabled data-i18n-title="edit.font.add">＋</button>
+				<label><span data-i18n="edit.size">Size</span>
+					<input type="number" id="sizeInput" class="num" min="1" max="2000" step="0.5" disabled>
+				</label>
+				<label><span data-i18n="edit.color">Color</span>
+					<input type="color" id="colorInput" class="swatch" disabled data-i18n-title="edit.color.title">
+					<input type="text" id="colorHex" class="hex" spellcheck="false" disabled>
+				</label>
+				<span class="style-group">
+					<button class="mini" id="boldBtn" disabled data-i18n-title="edit.bold"><b>B</b></button>
+					<button class="mini" id="italicBtn" disabled data-i18n-title="edit.italic"><i>I</i></button>
+					<button class="mini" id="underBtn" disabled data-i18n-title="edit.under"><u>U</u></button>
+				</span>
+				<span class="align-group">
+					<button class="mini align" data-align="0" disabled data-i18n-title="edit.alignL">⯇</button>
+					<button class="mini align" data-align="2" disabled data-i18n-title="edit.alignC">⯈⯇</button>
+					<button class="mini align" data-align="1" disabled data-i18n-title="edit.alignR">⯈</button>
+				</span>
+			</div>
+		</div>
+
+		<!-- 書式マーク / 選択範囲のとき (中身は app.js が組み立てる) -->
+		<div id="markPanel" class="fmt-panel" hidden>
+			<div class="fmt-title">
+				<span id="markPanelTitle"></span>
+				<button id="markDelBtn" class="mini" data-i18n="fmt.remove" data-i18n-title="fmt.remove.title">Remove</button>
+			</div>
+			<div id="markPanelBody" class="fmt-rows"></div>
+		</div>
+		<p class="hint" id="styleHint"></p>
+
+		<!-- 本文。タグは出さず、書式の変わり目に ◆ の札が入る。 -->
+		<div class="body-head">
+			<span data-i18n="edit.body">Body</span>
+			<button id="markAddBtn" class="mini" disabled data-i18n="fmt.insert" data-i18n-title="fmt.insert.title">＋Mark</button>
+		</div>
+		<div id="editText" class="body-edit" spellcheck="false"></div>
 		<div class="edit-actions">
 			<button id="applyBtn" disabled data-i18n="edit.apply" data-i18n-title="edit.apply.title">Apply</button>
 			<button id="revertBtn" disabled data-i18n="edit.revert" data-i18n-title="edit.revert.title">Revert</button>
@@ -165,6 +190,7 @@
 		<div class="modal-body">
 			<p class="hint" data-i18n="dlg.fontHint"></p>
 			<div class="row">
+				<span id="fontDlgTarget" class="badge-target"></span>
 				<input type="search" id="fontFilter" data-i18n-ph="dlg.fontFilter.ph">
 			</div>
 			<div id="sysFontList" class="fs-list"></div>

@@ -166,6 +166,18 @@ code { background: var(--bg); padding: 1px 4px; border-radius: 3px; }
 .meta .k { color: var(--fg-dim); width: 66px; flex: none; }
 .meta .v { word-break: break-all; }
 
+/* 本文。タグは出さず、書式の変わり目に ◆ の札が入る */
+.body-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 6px;
+	padding: 6px 10px 0;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--fg-dim);
+	flex: none;
+}
 #editText {
 	/* 伸ばしっぱなしにせず、内容に対して十分な高さで止める。
 	   下にプレビューが無くなったので flex:1 だと間延びしていた。 */
@@ -173,11 +185,50 @@ code { background: var(--bg); padding: 1px 4px; border-radius: 3px; }
 	height: 30vh;
 	min-height: 120px;
 	max-height: 46vh;
-	margin: 8px 10px;
+	overflow: auto;
+	margin: 4px 10px 8px;
 	padding: 8px;
-	resize: vertical;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--bg);
+	color: inherit;
 	white-space: pre-wrap;
-	font: 13px/1.6 "Cascadia Mono", Consolas, "Yu Gothic UI", monospace;
+	overflow-wrap: anywhere;
+	font: 13px/1.9 "Yu Gothic UI", "Segoe UI", system-ui, sans-serif;
+	outline: none;
+}
+#editText:focus { border-color: var(--accent); }
+#editText.off { opacity: .5; }
+#editText.off::before { content: attr(data-ph); color: var(--fg-dim); }
+
+/* 本文の中の書式マーク */
+.mk {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	margin: 0 1px;
+	padding: 0 4px;
+	border: 1px solid var(--border);
+	border-radius: 9px;
+	background: rgba(128, 150, 190, .16);
+	font-size: 10px;
+	line-height: 1.5;
+	vertical-align: 2px;
+	user-select: none;
+	cursor: pointer;
+	white-space: nowrap;
+}
+.mk:hover { background: rgba(128, 150, 190, .3); }
+.mk.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.mk.pending { border-style: dashed; background: none; }
+.mk-dot { font-size: 8px; opacity: .8; }
+.mk-part { opacity: .9; }
+.mk-part.off { text-decoration: line-through; opacity: .6; }
+.mk-swatch {
+	width: 8px;
+	height: 8px;
+	border: 1px solid rgba(128, 128, 128, .7);
+	border-radius: 2px;
 }
 .edit-actions {
 	display: flex;
@@ -401,10 +452,67 @@ button.mini.on { background: var(--accent); border-color: var(--accent); color: 
 .style-bar select { max-width: 150px; }
 .style-bar .num { width: 68px; }
 .align-group, .style-group { display: inline-flex; gap: 2px; }
-#styleHint { padding: 0 10px; margin: 2px 0 0; flex: none; }
+#styleHint { padding: 0 10px; margin: 2px 0 6px; flex: none; }
+
+/*--- 書式パネル -------------------------------------------------------*/
+.fmt-panel { flex: none; }
+.fmt-title {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 6px;
+	padding: 6px 10px 0;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--fg-dim);
+}
+.fmt-rows { padding: 4px 10px 0; font-size: 12px; }
+.fmt-row { display: flex; align-items: center; gap: 6px; padding: 1px 0; }
+.fmt-k { width: 62px; flex: none; color: var(--fg-dim); }
+.fmt-mode { width: 108px; flex: none; }
+.fmt-v { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.fmt-v .num { width: 68px; }
+.fmt-inherit { color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fmt-warn { color: #d08a20; font-size: 11px; }
+button.font-pick { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+input.swatch { width: 30px; height: 22px; padding: 0; border-radius: 4px; }
+input.hex { width: 76px; font-family: Consolas, monospace; }
 
 .modal-box.narrow { width: min(480px, 92vw); }
 #sysFontList { height: 260px; }
+.fs-group {
+	padding: 3px 8px;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--fg-dim);
+	background: var(--bg-pane);
+	position: sticky;
+	top: 0;
+}
+.badge-target { font-size: 11px; color: var(--fg-dim); flex: none; }
+
+/*--- サーバが終了したあとの画面 --------------------------------------*/
+#goneOverlay {
+	position: fixed;
+	inset: 0;
+	z-index: 9999;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: rgba(0, 0, 0, .72);
+	backdrop-filter: grayscale(1);
+}
+.gone-msg {
+	max-width: 460px;
+	padding: 20px 24px;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	background: var(--bg-pane);
+	font-size: 15px;
+	line-height: 1.7;
+	text-align: center;
+}
 
 /*--- ツリー上での名前編集 --------------------------------------------*/
 .rename-input {
@@ -507,6 +615,16 @@ button.linkish:hover { background: none; filter: brightness(1.2); }
 	margin-bottom: 4px;
 	border-bottom: 1px solid var(--border);
 	font-size: 12px;
+}
+/* ヘルプ本文の中で「◆ の札」を例示するための見た目 */
+.mk-sample {
+	display: inline-block;
+	padding: 0 5px;
+	border: 1px solid var(--border);
+	border-radius: 9px;
+	background: rgba(128, 150, 190, .16);
+	font-size: 10px;
+	vertical-align: 1px;
 }
 .help-toc a { color: var(--accent); text-decoration: none; }
 .help-toc a:hover { text-decoration: underline; }

@@ -10,6 +10,8 @@
 import { app } from './lib/appserve.js';
 import { composite, resetCache } from './composite.js';
 import { parseTagged, drawText, fontAvailable } from './textrender.js';
+import * as tg from './tags.js';
+import * as be from './bodyedit.js';
 // ローカル変数 t (テキストレイヤ) と衝突するので tr という別名で受ける
 import { t as tr, initLang, setLang, currentLang, applyI18n, serverMessage } from './i18n.js';
 
@@ -32,6 +34,19 @@ const state = {
 	needFit: false,       // 次の描画後に「全体表示」へ合わせる
 	sysFonts: [],
 	redrawTimer: 0,
+	// 書式パネルが今どこを編集しているか
+	//   {kind:'base'}              レイヤ全体の初期書式 (先頭のマーク)
+	//   {kind:'mark', pos}         本文中のマーク (pos = マークの先頭位置)
+	//   {kind:'new',  pos}         これから置くマーク (まだ本文には入っていない)
+	//   {kind:'range', s, e}       選択範囲 (頭に指定 + 終わりに戻すマークを置く)
+	fmtSel: { kind: 'base' },
+	fmtSetAttrs: new Set(),  // 「指定する」に切り替えたが、まだ値を選んでいない属性
+	fontTarget: 'base',   // フォント選択ダイアログの適用先
+	applying: 0,          // 反映の往復が何本走っているか
+	refreshPending: false,
+	serverGone: false,    // サーバが終了した (画面は用済み)
+	headTag: '',          // 本文の先頭にある基準への指定 (編集欄には出さない)
+	composing: false,     // IME 変換中
 };
 
 //---------------------------------------------------------------------------
@@ -218,9 +233,12 @@ function makeTextPainter() {
 		paint: (ctx, layer) => {
 			const t = textOf(layer.index);
 			if (!t) return;
+			// 基準 = 先頭ランの書式。タグはここからの差分なので、ここを間違える
+			// と書式指定の無い部分がまるごと違う色/太さで描かれる。
 			const base = {
 				font: t.font, size: t.fontSize || 24,
-				color: '#000000', bold: false, italic: false, underline: false,
+				color: t.color || '#000000',
+				bold: !!t.bold, italic: !!t.italic, underline: !!t.underline,
 				align: (t.paragraphJust && t.paragraphJust[0]) || 0,
 			};
 			drawText(ctx, layer.rect, parseTagged(t.text, base), base);
@@ -443,20 +461,26 @@ function renderEditor() {
 	const meta = $('#editMeta');
 	meta.textContent = '';
 
-	const styleEls = ['#fontSel', '#sizeInput', '#fontAddBtn', '#boldBtn',
-	                  '#italicBtn', '#underBtn', '#posX', '#posY'];
+	const styleEls = ['#fontSel', '#sizeInput', '#fontAddBtn', '#boldBtn', '#italicBtn',
+	                  '#underBtn', '#colorInput', '#colorHex', '#markAddBtn',
+	                  '#posX', '#posY'];
 	for (const s of styleEls) $(s).disabled = !t;
+	ta.dataset.ph = tr('edit.text.ph');
 	$('#boxW').disabled = !(t && t.hasBounds);
 	$('#boxH').disabled = !(t && t.hasBounds);
 	document.querySelectorAll('.align').forEach(b => { b.disabled = !t; });
 
 	if (!t) {
-		ta.value = '';
-		ta.disabled = true;
+		ta.textContent = '';
+		ta.contentEditable = 'false';
+		ta.classList.add('off');
 		ta.dataset.index = '';
+		ta.dataset.loaded = '';
+		state.headTag = '';
 		$('#applyBtn').disabled = true;
 		$('#revertBtn').disabled = true;
 		setEditStatus(node ? tr('edit.notText', node.kind) : '');
+		renderFormat();
 		return;
 	}
 
@@ -473,21 +497,6 @@ function renderEditor() {
 		d.append(ks, vs);
 		meta.appendChild(d);
 	}
-
-	// フォント候補 = この PSD が持っているもの + 追加したもの
-	const sel = $('#fontSel');
-	sel.textContent = '';
-	const seen = new Set();
-	for (const f of (t.fonts || [])) {
-		if (seen.has(f)) continue;
-		seen.add(f);
-		const o = document.createElement('option');
-		o.value = f;
-		o.textContent = f + (fontAvailable(f) ? '' : '  ' + tr('edit.fontNotHere'));
-		sel.appendChild(o);
-	}
-	sel.value = t.font || '';
-	$('#sizeInput').value = t.fontSize ? Math.round(t.fontSize * 10) / 10 : '';
 
 	// 配置。位置はレイヤ矩形の左上 (文書座標)、枠は流し込み枠の大きさ。
 	$('#posX').value = t.rect[0];
@@ -506,18 +515,26 @@ function renderEditor() {
 	if (!t.hasBounds) notes.push(tr('edit.pointText'));
 	$('#placeHint').textContent = notes.join(' / ');
 
-	const curAlign = (t.paragraphJust && t.paragraphJust[0]) || 0;
-	document.querySelectorAll('.align').forEach(b => {
-		b.classList.toggle('on', Number(b.dataset.align) === curAlign);
-	});
-
-	if (ta.dataset.index !== String(t.index)) {
-		ta.value = t.text;
+	// 編集欄を入れ直すのは「別のレイヤになった」か「外から本文が変わった」とき
+	// だけ。書式パネルからの変更は編集欄の中身そのものを組み替えて反映している
+	// ので、入れ直すとカーソルと選んでいたマークが飛んでしまう。
+	// 打ちかけ (未反映の入力) がある間は外からの変更でも上書きしない。
+	// dataset.loaded は「最後に流し込んだタグ表現」。編集欄の中身と直接比べると
+	// 書き方の揺れ (未知のタグの正規化など) で毎回入れ直しになってしまう。
+	const pending = ta.dataset.pending === '1';
+	if (ta.dataset.index !== String(t.index) ||
+	    (!pending && ta.dataset.loaded !== t.text)) {
 		ta.dataset.index = String(t.index);
+		ta.dataset.pending = '';
+		setFmtSel({ kind: 'base' });         // 位置がずれるので基準へ戻す
+		setBody(t.text);
 	}
-	ta.disabled = false;
-	$('#applyBtn').disabled = (ta.value === t.text);
+	ta.contentEditable = 'plaintext-only';
+	ta.classList.remove('off');
+	$('#applyBtn').disabled = (bodyText() === t.text);
 	$('#revertBtn').disabled = !t.dirty;
+
+	renderFormat();
 
 	let hint = t.styled ? tr('edit.styled') : '';
 	if (t.font && !fontAvailable(t.font)) hint += tr('edit.fontMissing');
@@ -526,21 +543,520 @@ function renderEditor() {
 }
 
 //---------------------------------------------------------------------------
+// 本文と書式マーク
+//
+// 本文の中身は「タグ付きの 1 本の文字列」だが、編集欄にタグは出さない。書式の
+// 変わり目には ◆ の札 (マーク) が入っていて、文字と同じように選んだり消したり
+// できる。
+//
+//   - 編集の対象は **カーソルが属しているマーク** (カーソルより前で最後に効いた
+//     もの)。手前にマークが無ければ「基準」= レイヤ全体の初期書式で、そこを
+//     いじると書式指定の無いところがまとめて変わる
+//   - だから基準の札は本文に出さない (先頭に置いた指定は隠したまま持っておく)
+//   - 範囲選択しているときは、その範囲だけに書式を付ける。閉じタグではなく
+//     「範囲の終わりに元の書式へ戻すマーク」を置くので、地の書式が何であっても
+//     壊れない
+//---------------------------------------------------------------------------
+
+/// サーバが返す基準の書式 (読み込み時の先頭ランの書式)
+function baseOf(t) {
+	return {
+		font: t.font, size: t.fontSize, color: t.color,
+		bold: t.bold, italic: t.italic, underline: t.underline,
+	};
+}
+
+function curText() {
+	return state.selected === null ? null : textOf(state.selected);
+}
+
+const bodyEl = () => $('#editText');
+
+/// 編集欄の中身をタグ表現で取り出す。
+/// 先頭マーク (基準への指定) は本文に出していないので、こちらで前に足す。
+function bodyText() {
+	return state.headTag + be.serializeBody(bodyEl());
+}
+
+/// タグ表現を編集欄へ流し込む。sel を渡すとタグ表現上の位置で選択し直す。
+function setBody(tagged, sel) {
+	const head = tg.headMark(tagged);
+	state.headTag = head ? tagged.slice(0, head.end) : '';
+	const off = state.headTag.length;
+	be.renderBody(bodyEl(), tagged.slice(off), {
+		describe: (specs) => tg.describeMark(specs, tr),
+		pendingPos: state.fmtSel.kind === 'new' ? state.fmtSel.pos - off : null,
+		selected: state.fmtSel.kind === 'mark'
+			? { kind: 'mark', start: state.fmtSel.pos - off } : state.fmtSel,
+	});
+	bodyEl().dataset.loaded = tagged;
+	if (sel) setBodySel(sel[0], sel[1]);
+}
+
+/// 選択範囲をタグ表現上の位置で
+function bodySel() {
+	const r = be.selectionRange(bodyEl());
+	if (!r) return null;
+	const off = state.headTag.length;
+	return { s: r.s + off, e: r.e + off };
+}
+
+function setBodySel(s, e) {
+	const off = state.headTag.length;
+	be.selectRange(bodyEl(), Math.max(0, s - off), Math.max(0, e - off));
+}
+
+/// 選択中のマーク (kind:'mark' のときだけ)。本文が変わって見失ったら null。
+function selectedMark(v) {
+	if (state.fmtSel.kind !== 'mark') return null;
+	return tg.parseMarks(v).find(m => m.start === state.fmtSel.pos) || null;
+}
+
+/// 位置から編集対象を決める。
+///   文字を選んでいる    → その範囲
+///   置いたばかりのマーク → そのまま
+///   それ以外            → カーソルが属しているマーク (無ければ基準)
+function fmtSelFor(v, s, e) {
+	if (s !== e && tg.textLengthIn(v, s, e) > 0) return { kind: 'range', s, e };
+	if (state.fmtSel.kind === 'new' && state.fmtSel.pos === s) return null;  // 変えない
+	return markSel(tg.governingMark(v, s));
+}
+
+/// カーソル / 選択が動いたとき
+function syncFmtFromCaret() {
+	const t = curText();
+	if (!t) return;
+	const r = bodySel();
+	if (!r) return;
+	const next = fmtSelFor(bodyText(), r.s, r.e);
+	if (!next) return;
+	setFmtSel(next);
+	renderFormat();
+}
+
+/// 先頭のマーク (と、マークが無い場所) は「基準」
+function markSel(m) {
+	return (!m || m.start === 0) ? { kind: 'base' } : { kind: 'mark', pos: m.start };
+}
+
+/// 編集対象を切り替える (途中まで開いていた「指定する」欄は畳む)
+function setFmtSel(sel) {
+	state.fmtSel = sel;
+	state.fmtSetAttrs.clear();
+}
+
+//---------------------------------------------------------------------------
+function renderFormat() {
+	const t = curText();
+	if (!t) {
+		$('#basePanel').hidden = false;
+		$('#markPanel').hidden = true;
+		$('#styleHint').textContent = '';
+		renderBasePanel(null);
+		return;
+	}
+
+	const v = bodyText();
+	const isBase = state.fmtSel.kind === 'base';
+	$('#basePanel').hidden = !isBase;
+	$('#markPanel').hidden = isBase;
+	if (isBase) renderBasePanel(t);
+	else renderMarkPanel(t, v);
+
+	// 本文の中の、いま編集している札を光らせる
+	be.highlight(bodyEl(), state.fmtSel.kind === 'mark'
+		? state.fmtSel.pos - state.headTag.length : null);
+
+	$('#styleHint').textContent =
+		isBase ? tr('fmt.hintBase')
+		       : (state.fmtSel.kind === 'range' ? tr('fmt.hintRange') : tr('fmt.hintMark'));
+}
+
+//---------------------------------------------------------------------------
+// 基準パネル — レイヤ全体の初期書式。値はそのまま選ぶだけ。
+//---------------------------------------------------------------------------
+function renderBasePanel(t) {
+	const sel = $('#fontSel');
+	sel.textContent = '';
+	if (!t) { $('#sizeInput').value = ''; $('#colorHex').value = ''; return; }
+
+	// 表示は「基準 + 先頭マーク」の結果。先頭マークは基準を書き換えている
+	// だけなので、利用者から見れば区別する意味が無い。
+	const st = tg.styleAtHead(bodyText(), baseOf(t));
+
+	const seen = new Set();
+	for (const f of [st.font, ...(t.fonts || [])]) {
+		if (!f || seen.has(f)) continue;
+		seen.add(f);
+		const o = document.createElement('option');
+		o.value = f;
+		o.textContent = f + (fontAvailable(f) ? '' : '  ' + tr('edit.fontNotHere'));
+		sel.appendChild(o);
+	}
+	sel.value = st.font || '';
+	$('#sizeInput').value = st.size ? Math.round(st.size * 10) / 10 : '';
+	$('#colorInput').value = tg.normColor(st.color).toLowerCase();
+	$('#colorHex').value = tg.normColor(st.color);
+	$('#boldBtn').classList.toggle('on', st.bold);
+	$('#italicBtn').classList.toggle('on', st.italic);
+	$('#underBtn').classList.toggle('on', st.underline);
+
+	const curAlign = (t.paragraphJust && t.paragraphJust[0]) || 0;
+	document.querySelectorAll('.align').forEach(b => {
+		b.classList.toggle('on', Number(b.dataset.align) === curAlign);
+	});
+}
+
+//---------------------------------------------------------------------------
+// マーク / 選択範囲パネル — 属性ごとに「変更しない / 基準へ戻す / 指定」。
+// 「変更しない」があるのが基準パネルとの違い。マークは差分の指定なので、
+// 触っていない属性はその時点の書式がそのまま続く。
+//---------------------------------------------------------------------------
+function renderMarkPanel(t, v) {
+	const body = $('#markPanelBody');
+	body.textContent = '';
+
+	const range = state.fmtSel.kind === 'range';
+	const mark  = range ? null : selectedMark(v);
+	const specs = mark ? mark.specs : {};
+	const pos   = range ? state.fmtSel.s
+	                    : (mark ? mark.start : (state.fmtSel.pos || 0));
+	// そのマークの位置で、指定が無ければ何になるか (「変更しない」の中身)
+	const inherited = tg.styleAt(v, pos, baseOf(t));
+
+	// 札は本文の中にあるので、どれを編集しているのか番号でも示す
+	const num = mark ? tg.parseMarks(v).filter(m => m.start > 0 && m.start <= mark.start).length
+	                 : 0;
+	$('#markPanelTitle').textContent =
+		range ? tr('fmt.titleRange', state.fmtSel.e - state.fmtSel.s)
+		      : (mark ? tr('fmt.titleMark', num) : tr('fmt.titleNew'));
+	$('#markDelBtn').hidden = range || !mark;
+
+	for (const a of tg.VALUE_ATTRS) body.appendChild(valueRow(t, a, specs, inherited));
+	for (const a of tg.FLAG_ATTRS)  body.appendChild(flagRow(a, specs, inherited));
+	body.appendChild(alignRow(v, specs, pos, range));
+}
+
+/// font / size / color の行
+function valueRow(t, attr, specs, inherited) {
+	const row = document.createElement('div');
+	row.className = 'fmt-row';
+	const k = document.createElement('span');
+	k.className = 'fmt-k';
+	k.textContent = tr('fmt.attr.' + attr);
+	row.appendChild(k);
+
+	const mode = document.createElement('select');
+	mode.className = 'fmt-mode';
+	for (const [val, key] of [['', 'fmt.mode.keep'], ['base', 'fmt.mode.base'],
+	                          ['set', 'fmt.mode.set']]) {
+		const o = document.createElement('option');
+		o.value = val;
+		o.textContent = tr(key);
+		mode.appendChild(o);
+	}
+	const has = (attr in specs);
+	// 「指定する」に切り替えただけでは何も入れない (値を選ぶ欄を出すだけ)。
+	// いきなり今と同じ値のタグが入っても意味が無く、消す手間が増えるだけなので。
+	const forced = state.fmtSetAttrs.has(attr);
+	mode.value = forced ? 'set' : (!has ? '' : (specs[attr] === null ? 'base' : 'set'));
+	mode.addEventListener('change', () => {
+		if (mode.value === 'set') {
+			state.fmtSetAttrs.add(attr);
+			renderFormat();
+			if (attr === 'font') openFontDialog('mark');   // フォントは一覧から選ぶ
+			return;
+		}
+		state.fmtSetAttrs.delete(attr);
+		commitSpec({ [attr]: mode.value === '' ? undefined : null });
+	});
+	row.appendChild(mode);
+
+	const box = document.createElement('span');
+	box.className = 'fmt-v';
+	const value = (has && specs[attr] !== null) ? specs[attr] : inherited[attr];
+	if (mode.value === 'set') {
+		if (attr === 'font') {
+			// フォントは一覧から選ぶ。名前を直に書ける欄はダイアログの中。
+			const btn = document.createElement('button');
+			btn.className = 'mini font-pick';
+			btn.textContent = value || tr('fmt.pickFont');
+			btn.title = tr('fmt.pickFont.title');
+			btn.addEventListener('click', () => openFontDialog('mark'));
+			box.appendChild(btn);
+			if (value && !fontAvailable(value)) {
+				const w = document.createElement('span');
+				w.className = 'fmt-warn';
+				w.textContent = tr('edit.fontNotHere');
+				box.appendChild(w);
+			}
+		} else if (attr === 'size') {
+			const inp = document.createElement('input');
+			inp.type = 'number';
+			inp.className = 'num';
+			inp.min = '1'; inp.max = '2000'; inp.step = '0.5';
+			inp.value = Math.round(Number(value) * 10) / 10 || '';
+			inp.addEventListener('change', () => {
+				const n = parseFloat(inp.value);
+				if (n > 0) commitSpec({ size: n });
+			});
+			box.appendChild(inp);
+		} else {
+			const col = document.createElement('input');
+			col.type = 'color';
+			col.className = 'swatch';
+			col.value = tg.normColor(value).toLowerCase();
+			const hex = document.createElement('input');
+			hex.type = 'text';
+			hex.className = 'hex';
+			hex.value = tg.normColor(value);
+			col.addEventListener('change', () => commitSpec({ color: col.value.toUpperCase() }));
+			hex.addEventListener('change', () => {
+				const c = tg.normColor(hex.value);
+				if (/^#[0-9A-F]{6}$/.test(c)) commitSpec({ color: c });
+				else hex.value = tg.normColor(value);
+			});
+			box.append(col, hex);
+		}
+	} else {
+		const s = document.createElement('span');
+		s.className = 'fmt-inherit';
+		s.textContent = attr === 'size' ? String(Math.round(inherited.size * 10) / 10)
+		              : attr === 'color' ? tg.normColor(inherited.color)
+		              : (inherited.font || '—');
+		if (attr === 'color') {
+			const sw = document.createElement('span');
+			sw.className = 'mk-swatch';
+			sw.style.background = tg.normColor(inherited.color);
+			box.appendChild(sw);
+		}
+		box.appendChild(s);
+	}
+	row.appendChild(box);
+	return row;
+}
+
+/// 太字 / 斜体 / 下線の行 ([/b] は「太字を切る」で、閉じタグではない)
+function flagRow(attr, specs, inherited) {
+	const row = document.createElement('div');
+	row.className = 'fmt-row';
+	const k = document.createElement('span');
+	k.className = 'fmt-k';
+	k.textContent = tr('fmt.attr.' + attr);
+	row.appendChild(k);
+
+	const mode = document.createElement('select');
+	mode.className = 'fmt-mode';
+	for (const [val, key] of [['', 'fmt.mode.keep'], ['on', 'fmt.mode.on'],
+	                          ['off', 'fmt.mode.off']]) {
+		const o = document.createElement('option');
+		o.value = val;
+		o.textContent = tr(key);
+		mode.appendChild(o);
+	}
+	mode.value = (attr in specs) ? (specs[attr] ? 'on' : 'off') : '';
+	mode.addEventListener('change', () => commitSpec({
+		[attr]: mode.value === '' ? undefined : (mode.value === 'on'),
+	}));
+	row.appendChild(mode);
+
+	const box = document.createElement('span');
+	box.className = 'fmt-v fmt-inherit';
+	if (!(attr in specs)) box.textContent = inherited[attr] ? tr('fmt.mode.on') : tr('fmt.mode.off');
+	row.appendChild(box);
+	return row;
+}
+
+/// 行揃えは段落の指定なので、行頭のマークでしか意味を持たない
+function alignRow(v, specs, pos, range) {
+	const row = document.createElement('div');
+	row.className = 'fmt-row';
+	const k = document.createElement('span');
+	k.className = 'fmt-k';
+	k.textContent = tr('fmt.attr.align');
+	row.appendChild(k);
+
+	const atLineHead = !range && (pos === 0 || v[pos - 1] === '\n' ||
+		tg.parseMarks(v).some(m => m.end === pos && (m.start === 0 || v[m.start - 1] === '\n')));
+
+	const mode = document.createElement('select');
+	mode.className = 'fmt-mode wide';
+	const opts = [['', 'fmt.mode.keep']];
+	for (const a of [0, 2, 1]) opts.push([String(a), 'fmt.align.' + a]);
+	if ('align' in specs && ![0, 1, 2].includes(specs.align))
+		opts.push([String(specs.align), 'fmt.align.' + specs.align]);
+	for (const [val, key] of opts) {
+		const o = document.createElement('option');
+		o.value = val;
+		o.textContent = tr(key);
+		mode.appendChild(o);
+	}
+	mode.value = ('align' in specs) ? String(specs.align) : '';
+	mode.disabled = !atLineHead;
+	mode.addEventListener('change', () => commitSpec({
+		align: mode.value === '' ? undefined : Number(mode.value),
+	}));
+	row.appendChild(mode);
+
+	const box = document.createElement('span');
+	box.className = 'fmt-v fmt-inherit';
+	box.textContent = atLineHead ? '' : tr('fmt.alignNeedsLineHead');
+	row.appendChild(box);
+	return row;
+}
+
+//---------------------------------------------------------------------------
+// 書式の書き込み — どのモードでも、本文のタグを組み替えて即座に反映する
+//---------------------------------------------------------------------------
+
+/// マーク / 選択範囲パネルからの変更
+async function commitSpec(changes) {
+	const t = curText();
+	if (!t) return;
+	const v = bodyText();
+	const sel = state.fmtSel;
+	let r;
+
+	if (sel.kind === 'range') {
+		// 閉じタグは作らない。範囲の終わりには「元の書式へ戻すマーク」が入る。
+		const s = sel.s, e = sel.e;
+		if (!tg.textLengthIn(v, s, e)) return;
+		r = tg.editRange(v, s, e, changes, baseOf(t));
+	} else if (sel.kind === 'new') {
+		r = tg.editAt(v, sel.pos, changes);
+	} else {
+		const m = selectedMark(v);
+		if (!m) return;
+		r = tg.editMark(v, m, changes);
+	}
+	state.fmtSetAttrs.clear();      // 入ったので「値待ち」ではなくなる
+	await commitTagged(r, t);
+}
+
+/// 基準パネルからの変更 = 本文の先頭にあるマークを書き換える。
+///
+/// 「基準」はファイルを読んだ時点の書式で固定されていて動かない。初期書式を
+/// 変えるというのは、その基準の上に先頭マークを重ねること。読み込み時の値に
+/// 戻したときはマークごと消える (指定が要らなくなるので)。
+async function setBaseStyle(attr, value) {
+	const t = curText();
+	if (!t) return;
+	const v = bodyText();
+	const b = tg.baseStyle(baseOf(t));
+	const head = tg.headMark(v);
+	const same = tg.sameValue(attr, value, b[attr]);
+	const changes = { [attr]: same ? undefined : value };
+	const r = head ? tg.editMark(v, head, changes) : tg.editAt(v, 0, changes);
+	await commitTagged(r, t);
+}
+
+/// 基準の太字 / 斜体 / 下線を反転する
+function toggleBaseFlag(attr) {
+	const t = curText();
+	if (!t) return;
+	const st = tg.styleAtHead(bodyText(), baseOf(t));
+	return setBaseStyle(attr, !st[attr]);
+}
+
+/// 本文が打ち替えられたとき (札の増減もここで拾う)
+function onBodyInput() {
+	const t = curText();
+	const v = bodyText();
+	bodyEl().dataset.pending = (t && v !== t.text) ? '1' : '';
+	$('#applyBtn').disabled = !t || (v === t.text);
+	renderFormat();
+}
+
+/// 本文中の札をクリックしたら、その札の書式を編集する
+function onBodyClick(e) {
+	const el = e.target.closest ? e.target.closest('.mk') : null;
+	if (!el) return;
+	const rel = be.markPosOf(bodyEl(), el);
+	if (rel === null) return;             // まだ中身の無い札 (pending) はそのまま
+	const pos = rel + state.headTag.length;
+	const m = tg.parseMarks(bodyText()).find(x => x.start === pos);
+	if (!m) return;
+	setFmtSel(markSel(m));
+	setBodySel(m.end, m.end);             // 札の直後 = このマークが効き始める場所
+	renderFormat();
+}
+
+/// カーソル位置に書式マークを置く。中身が空のタグは書けないので、本文に入る
+/// のは何か指定された時点。それまでは点線の札として置いておく。
+function insertMark() {
+	const t = curText();
+	if (!t) { toast(tr('msg.needText'), true); return; }
+	const v = bodyText();
+	const r = bodySel();
+	const pos = r ? r.s : v.length;
+	const m = tg.governingMark(v, pos);
+	// すでにその位置にマークがあるなら、新しく作らずそれを選び直す
+	if (m && m.end === pos) setFmtSel(markSel(m));
+	else setFmtSel({ kind: 'new', pos });
+	setBody(v, [pos, pos]);
+	bodyEl().focus();
+	renderFormat();
+}
+
+async function deleteSelectedMark() {
+	const t = curText();
+	if (!t) return;
+	const v = bodyText();
+	const m = selectedMark(v);
+	if (!m) return;
+	setFmtSel({ kind: 'base' });
+	await commitTagged(tg.removeMark(v, m), t);
+}
+
+/// 組み替えた本文を編集欄へ入れて、そのままサーバへ反映する。
+/// カーソル / 選択範囲は編集に合わせてずらす (選んでいた文字を選んだまま)。
+async function commitTagged(r, t) {
+	const ta = bodyEl();
+	if (r.text === bodyText()) return;
+	const cur = bodySel() || { s: 0, e: 0 };
+	const s = tg.shiftPos(cur.s, r.edits);
+	const e = tg.shiftPos(cur.e, r.edits);
+	if (state.fmtSel.kind === 'mark')
+		state.fmtSel = { kind: 'mark', pos: tg.shiftPos(state.fmtSel.pos, r.edits) };
+	else if (state.fmtSel.kind === 'range')
+		state.fmtSel = { kind: 'range', s, e };
+	else if (state.fmtSel.kind === 'new')
+		state.fmtSel = markSel(tg.governingMark(r.text, tg.shiftPos(state.fmtSel.pos, r.edits)));
+	setBody(r.text, [s, e]);
+	// サーバへ届くまでの間に別の更新通知 (SSE) で描き直しが走ると、まだ
+	// 送っていない中身が「外から変わった」と見なされて捨てられてしまう。
+	// 反映が終わるまでは打ちかけと同じ扱いにしておく。
+	ta.dataset.pending = '1';
+	await applyText();
+}
+
+//---------------------------------------------------------------------------
 // 編集操作
 //---------------------------------------------------------------------------
 async function applyText() {
 	const t = state.selected === null ? null : textOf(state.selected);
 	if (!t) return;
+	state.applying++;
 	try {
-		const r = await app.post('/api/psd/text',
-		                         { index: t.index, text: $('#editText').value });
-		Object.assign(t, r);
+		const sent = bodyText();
+		const r = await app.post('/api/psd/text', { index: t.index, text: sent });
+		// 待っている間に一覧が作り直されていることがある (SSE の更新通知)。
+		// 掴んでいた行はもう表に載っていないので、引き直してから書き込む。
+		Object.assign(textOf(t.index) || t, r);
+		bodyEl().dataset.pending = '';
+		bodyEl().dataset.loaded = r.text !== undefined ? r.text : sent;
 		state.info.dirty = state.texts.filter(x => x.dirty).length;
 		renderAll();
 		scheduleRedraw();
 		setEditStatus(r.warning ? r.warning : tr('edit.applied'), r.warning ? 'error' : 'ok');
 	} catch (e) {
 		setEditStatus(serverMessage(e.message), 'error');
+	} finally {
+		state.applying--;
+		if (!state.applying && state.refreshPending) {
+			state.refreshPending = false;
+			refreshAll();
+		}
 	}
 }
 
@@ -550,7 +1066,8 @@ async function revertText() {
 	try {
 		const r = await app.post('/api/psd/revert', { index: t.index });
 		Object.assign(t, r);
-		$('#editText').dataset.index = '';
+		bodyEl().dataset.pending = '';         // 打ちかけも捨てて読み込み時へ戻す
+		bodyEl().dataset.loaded = '';          // 中身を入れ直させる
 		state.info.dirty = state.texts.filter(x => x.dirty).length;
 		renderAll();
 		scheduleRedraw();
@@ -559,56 +1076,17 @@ async function revertText() {
 	}
 }
 
-/// 文字列中のタグ [..] の範囲を列挙する ([[ は文字なので除く)
-function tagRanges(v) {
-	const out = [];
-	for (let i = 0; i < v.length;) {
-		if (v[i] !== '[') { i++; continue; }
-		if (v[i + 1] === '[') { i += 2; continue; }
-		const close = v.indexOf(']', i + 1);
-		if (close < 0) break;
-		out.push([i, close + 1]);
-		i = close + 1;
-	}
-	return out;
-}
-
-/// 位置がタグの内側なら外へ寄せる (dir<0 でタグ先頭、dir>0 でタグ末尾へ)
-function snapOutOfTag(v, pos, dir) {
-	for (const [a, b] of tagRanges(v)) {
-		if (pos > a && pos < b) return dir < 0 ? a : b;
-	}
-	return pos;
-}
-
-/// 編集欄の選択範囲をタグで囲む (閉じなし方式なので「入れる/戻す」の 2 つ)
-function wrapSelection(openTag, closeTag) {
-	const ta = $('#editText');
-	const v = ta.value;
-	// タグの途中で切ると [b][ali[/b]gn=right] のような壊れ方をするので、
-	// 選択がタグの内側に食い込んでいたら外側へ吸着させる
-	const s = snapOutOfTag(v, ta.selectionStart, -1);
-	const e = snapOutOfTag(v, ta.selectionEnd, +1);
-	if (s === e) {
-		// 選択が無ければカーソル位置に指定タグだけ入れる (そこから先に効く)
-		ta.value = v.slice(0, s) + openTag + v.slice(s);
-		ta.selectionStart = ta.selectionEnd = s + openTag.length;
-	} else {
-		ta.value = v.slice(0, s) + openTag + v.slice(s, e) + closeTag + v.slice(e);
-		ta.selectionStart = s + openTag.length;
-		ta.selectionEnd = e + openTag.length;
-	}
-	ta.focus();
-	ta.dispatchEvent(new Event('input', { bubbles: true }));
-}
-
+/// 段落の行揃え。基準パネルから呼ぶので全段落が対象。
+/// サーバ側でタグ表現を作り直すので、編集途中の本文があるなら先に反映しておく
+/// (そうしないと入力が消える)。
 async function setAlign(align) {
 	const t = state.selected === null ? null : textOf(state.selected);
 	if (!t) return;
+	if (bodyText() !== t.text) await applyText();
 	try {
 		const r = await app.post('/api/psd/align', { index: t.index, align });
 		Object.assign(t, r);
-		$('#editText').dataset.index = '';   // タグ表現が変わるので入れ直す
+		bodyEl().dataset.loaded = '';        // タグ表現が変わるので入れ直す
 		state.info.dirty = state.texts.filter(x => x.dirty).length;
 		renderAll();
 		scheduleRedraw();
@@ -712,8 +1190,8 @@ async function moveText(dx, dy) {
 	const t = state.selected === null ? null : textOf(state.selected);
 	if (!t || (!dx && !dy)) return;
 	try {
+		// 位置を動かしても本文は変わらないので、編集欄はそのままにする
 		const r = await app.post('/api/psd/place', { index: t.index, dx, dy });
-		$('#editText').dataset.index = '';
 		applyDoc(r, { keepVisibility: true });
 		scheduleRedraw();
 	} catch (e) {
@@ -727,7 +1205,6 @@ async function resizeText(width, height) {
 	if (!t) return;
 	try {
 		const r = await app.post('/api/psd/place', { index: t.index, width, height });
-		$('#editText').dataset.index = '';
 		applyDoc(r, { keepVisibility: true });
 		scheduleRedraw();
 	} catch (e) {
@@ -753,9 +1230,18 @@ async function moveLayer(up) {
 //---------------------------------------------------------------------------
 // フォント追加
 //---------------------------------------------------------------------------
-async function openFontDialog() {
+/// target は 'base' (レイヤの初期書式) か 'mark' (選択中のマーク / 範囲)
+async function openFontDialog(target) {
+	if (!curText()) { toast(tr('msg.needText'), true); return; }
+	state.fontTarget = target || 'base';
 	$('#fontDialog').hidden = false;
 	$('#fontManual').value = '';
+	$('#fontDlgTarget').textContent =
+		tr(state.fontTarget === 'base' ? 'dlg.fontForBase' : 'dlg.fontForMark');
+
+	// まず PSD が持っているフォントだけで一覧を出す。システムフォントの取得は
+	// 許可待ちで止まることがあり、それを待ってから描くと一覧が空のままになる。
+	renderSysFonts();
 	if (!state.sysFonts.length) {
 		try {
 			// Local Font Access API (Chromium)。使えなければ手入力に頼る。
@@ -764,46 +1250,62 @@ async function openFontDialog() {
 				const names = new Set();
 				for (const f of list) names.add(f.postscriptName || f.fullName);
 				state.sysFonts = [...names].sort();
+				renderSysFonts();
 			}
 		} catch (e) { /* 権限拒否など。手入力へ */ }
 	}
-	renderSysFonts();
 }
 
 function renderSysFonts() {
 	const host = $('#sysFontList');
 	host.textContent = '';
-	if (!state.sysFonts.length) {
+	const f = $('#fontFilter').value.trim().toLowerCase();
+	const hit = (n) => !f || n.toLowerCase().includes(f);
+
+	const group = (label) => {
+		const d = document.createElement('div');
+		d.className = 'fs-group';
+		d.textContent = label;
+		host.appendChild(d);
+	};
+	const row = (n) => {
+		const d = document.createElement('div');
+		d.className = 'fs-row';
+		d.textContent = n + (fontAvailable(n) ? '' : '  ' + tr('edit.fontNotHere'));
+		d.style.fontFamily = `"${n}", sans-serif`;
+		d.addEventListener('click', () => pickFont(n));
+		host.appendChild(d);
+	};
+
+	// この PSD が持っているフォントを先に出す。Photoshop 側にも確実にある
+	// ぶんなので、まずここから選べるほうが安全。
+	const t = curText();
+	const own = [...new Set(t ? (t.fonts || []) : [])].filter(hit);
+	if (own.length) {
+		group(tr('dlg.fontOwn'));
+		own.forEach(row);
+	}
+	if (state.sysFonts.length) {
+		group(tr('dlg.fontSystem'));
+		state.sysFonts.filter(hit).slice(0, 400).forEach(row);
+	} else {
 		const p = document.createElement('p');
 		p.className = 'hint';
-		p.textContent = 'システムフォントの一覧を取得できませんでした。'
-			+ '下の欄に PostScript 名を直接入力してください。';
+		p.textContent = tr('dlg.fontNoList');
 		host.appendChild(p);
-		return;
-	}
-	const f = $('#fontFilter').value.trim().toLowerCase();
-	const shown = state.sysFonts.filter(n => !f || n.toLowerCase().includes(f));
-	for (const n of shown.slice(0, 400)) {
-		const row = document.createElement('div');
-		row.className = 'fs-row';
-		row.textContent = n;
-		row.style.fontFamily = `"${n}", sans-serif`;
-		row.addEventListener('click', () => addFont(n));
-		host.appendChild(row);
 	}
 }
 
-function addFont(name) {
-	if (!name) return;
-	const t = state.selected === null ? null : textOf(state.selected);
+/// 一覧 / 手入力から選ばれたフォントを、開いたときの適用先へ入れる
+function pickFont(name) {
+	const n = String(name || '').trim();
+	if (!n) return;
+	const t = curText();
 	if (!t) return;
-	if (!t.fonts.includes(name)) t.fonts.push(name);
+	if (!t.fonts.includes(n)) t.fonts.push(n);
 	$('#fontDialog').hidden = true;
-	renderEditor();
-	$('#fontSel').value = name;
-	// 選択範囲にフォント指定を入れる
-	wrapSelection(`[font=${name}]`, '[/font]');
-	toast(tr('msg.fontAdded', name));
+	if (state.fontTarget === 'base') setBaseStyle('font', n);
+	else commitSpec({ font: n });
 }
 
 //---------------------------------------------------------------------------
@@ -965,6 +1467,57 @@ function setupReplBridge() {
 	app.command('apply',  () => applyText());
 	app.command('save',   () => save());
 	app.command('align',  (a) => setAlign(typeof a === 'number' ? a : a.align));
+
+	// --- 書式マーク ---
+	/// いまの本文とマークの構成を覗く
+	app.command('marks', () => {
+		const t = curText();
+		const v = bodyText();
+		return {
+			sel: state.fmtSel,
+			base: t ? tg.baseStyle(baseOf(t)) : null,
+			text: v,
+			plain: tg.stripToPlain(v),
+			caret: bodySel(),
+			marks: tg.parseMarks(v).map(m => ({ start: m.start, end: m.end, specs: m.specs })),
+		};
+	});
+	/// 編集対象を選ぶ: 'base' / {mark:N} (1 から) / {range:[s,e]} / {at:pos}
+	app.command('marksel', (a) => {
+		const v = bodyText();
+		if (a === 'base') setFmtSel({ kind: 'base' });
+		else if (a && a.range) {
+			// カーソルを動かしたのと同じ判断をする (ウィンドウが前面に無いと
+			// ブラウザの選択が入らないことがあるので、判断は自前で行う)
+			const [s, e] = a.range;
+			setBodySel(s, e);
+			setFmtSel(fmtSelFor(v, s, e) || state.fmtSel);
+		} else if (a && a.at !== undefined) {
+			setFmtSel({ kind: 'new', pos: a.at });
+			setBody(v, [a.at, a.at]);
+		} else {
+			const n = (typeof a === 'number') ? a : a.mark;
+			const head = tg.headMark(v);
+			const list = tg.parseMarks(v).filter(m => m !== head);
+			const m = list[n - 1];
+			if (!m) throw new Error('no such mark: ' + n);
+			setFmtSel({ kind: 'mark', pos: m.start });
+		}
+		renderFormat();
+		return state.fmtSel;
+	});
+	/// いまの対象へ書式を入れる。値は 値 / null (基準へ戻す) / "keep" (指定を消す)
+	app.command('fmt', async (a) => {
+		const changes = {};
+		for (const k of Object.keys(a || {}))
+			changes[k] = (a[k] === 'keep') ? undefined : a[k];
+		if (state.fmtSel.kind === 'base') {
+			for (const k of Object.keys(changes)) await setBaseStyle(k, changes[k]);
+		} else {
+			await commitSpec(changes);
+		}
+		return bodyText();
+	});
 	app.command('move', async (a) => {
 		const up = (typeof a === 'string') ? a !== 'down' : (a.up ?? a.direction !== 'down');
 		if (a && a.index !== undefined) state.selected = a.index;
@@ -1173,26 +1726,42 @@ async function main() {
 	}
 
 	// --- 右ペイン ---
-	$('#editText').addEventListener('input', () => {
-		const t = state.selected === null ? null : textOf(state.selected);
-		$('#applyBtn').disabled = !t || ($('#editText').value === t.text);
-	});
-	$('#editText').addEventListener('keydown', e => {
+	const ta = bodyEl();
+	ta.addEventListener('input', () => { if (!state.composing) onBodyInput(); });
+	// IME の変換中に DOM を触ると入力が壊れるので、確定するまで待つ
+	ta.addEventListener('compositionstart', () => { state.composing = true; });
+	ta.addEventListener('compositionend', () => { state.composing = false; onBodyInput(); });
+	ta.addEventListener('keydown', e => {
 		if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); applyText(); }
+	});
+	ta.addEventListener('click', onBodyClick);
+	// カーソル / 選択範囲が動いたら書式パネルの編集対象を切り替える
+	document.addEventListener('selectionchange', () => {
+		if (!state.composing && document.activeElement === ta) syncFmtFromCaret();
 	});
 	$('#applyBtn').addEventListener('click', applyText);
 	$('#revertBtn').addEventListener('click', revertText);
 
-	$('#boldBtn').addEventListener('click',   () => wrapSelection('[b]', '[/b]'));
-	$('#italicBtn').addEventListener('click', () => wrapSelection('[i]', '[/i]'));
-	$('#underBtn').addEventListener('click',  () => wrapSelection('[u]', '[/u]'));
-	$('#fontSel').addEventListener('change', e => {
-		wrapSelection(`[font=${e.target.value}]`, '[/font]');
-	});
+	// --- 基準パネル (レイヤ全体の初期書式) ---
+	$('#boldBtn').addEventListener('click',   () => toggleBaseFlag('bold'));
+	$('#italicBtn').addEventListener('click', () => toggleBaseFlag('italic'));
+	$('#underBtn').addEventListener('click',  () => toggleBaseFlag('underline'));
+	$('#fontSel').addEventListener('change', e => setBaseStyle('font', e.target.value));
 	$('#sizeInput').addEventListener('change', e => {
 		const v = parseFloat(e.target.value);
-		if (v > 0) wrapSelection(`[size=${v}]`, '[/size]');
+		if (v > 0) setBaseStyle('size', v);
 	});
+	$('#colorInput').addEventListener('change',
+		e => setBaseStyle('color', e.target.value.toUpperCase()));
+	$('#colorHex').addEventListener('change', e => {
+		const c = tg.normColor(e.target.value);
+		if (/^#[0-9A-F]{6}$/.test(c)) setBaseStyle('color', c);
+		else renderFormat();          // 書き損じは元の値へ戻す
+	});
+
+	// --- マーク ---
+	$('#markAddBtn').addEventListener('click', insertMark);
+	$('#markDelBtn').addEventListener('click', deleteSelectedMark);
 	// 位置は絶対値で入れてもらい、差分にして送る
 	const commitPos = () => {
 		const t = state.selected === null ? null : textOf(state.selected);
@@ -1213,16 +1782,18 @@ async function main() {
 	$('#boxW').addEventListener('change', commitBox);
 	$('#boxH').addEventListener('change', commitBox);
 
-	$('#fontAddBtn').addEventListener('click', openFontDialog);
+	$('#fontAddBtn').addEventListener('click', () => openFontDialog('base'));
 	$('#fontFilter').addEventListener('input', renderSysFonts);
-	$('#fontAddGo').addEventListener('click', () => addFont($('#fontManual').value.trim()));
+	$('#fontAddGo').addEventListener('click', () => pickFont($('#fontManual').value));
 	document.querySelectorAll('.align').forEach(b =>
 		b.addEventListener('click', () => setAlign(Number(b.dataset.align))));
 
 	document.addEventListener('keydown', e => {
 		if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); $('#saveBtn').click(); }
 		// 編集欄や入力欄にカーソルが無いときだけ、矢印キーで 1px ずつ動かす
-		const inField = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+		// (本文は contenteditable なので isContentEditable でも見る)
+		const el = document.activeElement || document.body;
+		const inField = /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable;
 		if (!inField && state.selected !== null &&
 		    ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
 			e.preventDefault();
@@ -1239,10 +1810,55 @@ async function main() {
 			.forEach(m => { m.hidden = true; });
 	});
 
+	watchServer();
+
 	// --- 起動時に開くファイル ---
 	const startup = await app.get('/api/app/startup').catch(() => null);
 	if (startup && startup.open) await openPsd(startup.open);
 	else renderAll();
+}
+
+//---------------------------------------------------------------------------
+/// サーバが終了したらこの画面も畳む。
+///
+/// psdtext は「exe 1 本 + ブラウザ」なので、サーバを止めた (テストで開き直した /
+/// 別の PSD で起動し直した) あとにウィンドウだけが残る。見た目は生きている
+/// ままなので、どれが今の作業用なのか分からなくなる。
+///
+/// script から開いたウィンドウでないと close() が効かないブラウザがあるので、
+/// 閉じられなかった場合に備えて画面にも大きく出しておく。
+function watchServer() {
+	let miss = 0;
+	const opened = performance.now();
+	setInterval(async () => {
+		if (state.serverGone) return;
+		try {
+			await app.get('/_app/info');
+			miss = 0;
+		} catch (e) {
+			// 開いた直後は、まだ起動中 / 再起動待ちのことがあるので数えない
+			if (performance.now() - opened < 15000) return;
+			// HTTP の答えが返っている (状態コードがある) ならサーバは生きている。
+			// 閉じるのは、続けて繋がらなくなったときだけ。
+			if (e && e.status) { miss = 0; return; }
+			if (++miss >= 3) serverGone();
+		}
+	}, 3000);
+}
+
+function serverGone() {
+	if (state.serverGone) return;
+	state.serverGone = true;
+	clearTimeout(state.redrawTimer);
+	document.title = '× ' + document.title;
+	const box = document.createElement('div');
+	box.id = 'goneOverlay';
+	const msg = document.createElement('div');
+	msg.className = 'gone-msg';
+	msg.textContent = tr('app.serverGone');
+	box.appendChild(msg);
+	document.body.appendChild(box);
+	window.close();     // 閉じられれば一番よい (閉じられなければ上の表示が残る)
 }
 
 /// 内蔵ヘルプを開く (web/help.html を読み込む。exe にも埋め込まれている)
@@ -1277,13 +1893,19 @@ async function openHelp(anchor) {
 	}
 }
 
+/// 更新通知 (SSE) を受けて一覧を取り直す。
+/// 反映の途中で走らせると、取ってきた内容のほうが古くて編集を巻き戻して
+/// しまうことがあるので、そのときは後回しにする。
 async function refreshAll() {
+	if (state.applying) { state.refreshPending = true; return; }
 	try {
 		const [texts, tree] = await Promise.all([
 			app.get('/api/psd/texts'), app.get('/api/psd/tree'),
 		]);
+		if (state.applying) { state.refreshPending = true; return; }
+		// 編集欄の入れ直しは renderEditor が中身を見て決める (自分の編集で
+		// カーソルが飛ばないように)
 		applyDoc({ info: state.info, texts, tree }, { keepVisibility: true });
-		$('#editText').dataset.index = '';
 	} catch (e) { /* 文書が閉じられた等 */ }
 }
 
