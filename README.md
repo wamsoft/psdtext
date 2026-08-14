@@ -248,7 +248,7 @@ statically, so there are no DLLs.
 To make a release reproducible, pin the dependencies to tags:
 
 ```bash
-cmake -B build -DPSDTEXT_APPSERVE_TAG=v0.1.0 -DPSDTEXT_PSDPARSE_TAG=v0.8.1
+cmake -B build -DPSDTEXT_APPSERVE_TAG=v0.1.0 -DPSDTEXT_PSDPARSE_TAG=v0.9.0
 ```
 
 See appserve's [docs/RELEASE.md](https://github.com/wamsoft/appserve/blob/master/docs/RELEASE.md).

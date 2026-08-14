@@ -238,7 +238,7 @@ git tag v0.1.0 && git push origin v0.1.0                            # リリー�
 リリースの再現性を確保したいときは依存をタグに固定する:
 
 ```bash
-cmake -B build -DPSDTEXT_APPSERVE_TAG=v0.1.0 -DPSDTEXT_PSDPARSE_TAG=v0.8.1
+cmake -B build -DPSDTEXT_APPSERVE_TAG=v0.1.0 -DPSDTEXT_PSDPARSE_TAG=v0.9.0
 ```
 
 詳細は appserve の [docs/RELEASE.md](https://github.com/wamsoft/appserve/blob/master/docs/RELEASE.md)。
