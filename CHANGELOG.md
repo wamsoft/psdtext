@@ -55,7 +55,9 @@ On release, rename the "Unreleased" heading to the version number and start a ne
 - **Ctrl+Shift+Enter applies and moves to the next text layer**, with the text
   selected on arrival so you can type straight over it. Ctrl+&uarr; / Ctrl+&darr; move
   between layers
-- **Drop a PSD or a CSV onto the window** to open it
+- **A CSV can be dropped onto the window.** A PSD cannot: the browser hands over
+  the contents but not the path, so psdtext has nothing to open — drop it onto
+  `psdtext.exe` (or its shortcut) instead. Dropping one on the window says so
 - **The window size and position are remembered**
 - Fixed: a dialog closed when a drag that started inside it ended outside,
   which made pasting a path fiddly
