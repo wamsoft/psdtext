@@ -10,6 +10,10 @@ On release, rename the "Unreleased" heading to the version number and start a ne
 
 ## Unreleased
 
+---
+
+## 0.2.0 — 2026-08-14
+
 ### CSV
 
 - **Fixed: importing a CSV never applied anything.** Building the list of

@@ -132,7 +132,7 @@ int main(int argc, char** argv)
 	appserve::App app;
 
 	app.options().appName    = "psdtext";
-	app.options().appVersion = "0.1.1";
+	app.options().appVersion = "0.2.0";
 	// PSD の保存には書き込みが要る。ファイル API の読み出しは既定で有効。
 	app.options().allowWrite = true;
 
