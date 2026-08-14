@@ -515,6 +515,34 @@ bool Document::setName(int index, const std::string& utf8, std::string& err)
 }
 
 //---------------------------------------------------------------------------
+int Document::moveLayer(int index, bool up, std::string& err)
+{
+	if (!isOpen()) { err = "no document is open"; return -1; }
+	if (index < 0 || index >= (int)layers_.size()) { err = "layer index out of range"; return -1; }
+
+	int ni = -1;
+	if (!psd_->moveLayerSibling(index, up, &ni)) {
+		err = up ? "これ以上上へは動かせません" : "これ以上下へは動かせません";
+		return -1;
+	}
+
+	// インデックスが総入れ替えになるので索引を作り直す。編集済みの本文は
+	// PSDFile 側にあるので失われない。dirty 表示は lyid で引き継ぐ。
+	std::vector<TextRow> before = texts_;
+	rebuildIndex();
+	for (auto& t : texts_) {
+		for (const auto& b : before) {
+			if (b.lyid == 0 || b.lyid != t.lyid) continue;
+			t.original = b.original;
+			t.dirty    = (t.tagged != t.original);
+			break;
+		}
+	}
+	appserve::logI("moved layer " + std::to_string(index) + " -> " + std::to_string(ni));
+	return ni;
+}
+
+//---------------------------------------------------------------------------
 int Document::dirtyCount() const
 {
 	int n = 0;

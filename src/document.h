@@ -108,6 +108,10 @@ public:
 	/// レイヤを複製する。新しいレイヤの index を返す (失敗で -1)。
 	int  duplicateLayer(int index, const std::string& newName, std::string& err);
 
+	/// 同じ階層の隣の兄弟と入れ替える (up=true で表示上ひとつ上へ)。
+	/// フォルダは中身ごと動く。移動後の index を返す (動かせなければ -1)。
+	int  moveLayer(int index, bool up, std::string& err);
+
 	/// outPath が空なら開いたファイルへ上書き。backup=true なら <name>.psd.bak へ退避。
 	bool save(const std::string& outPath, bool backup, std::string& err);
 

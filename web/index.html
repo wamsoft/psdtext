@@ -18,6 +18,7 @@
 	<button id="exportBtn" title="テキストを CSV で書き出す">CSV 書き出し</button>
 	<button id="importBtn" title="CSV を読み込んで一括反映">CSV 読み込み</button>
 	<button id="saveBtn" class="primary" title="PSD を保存 (元ファイルは .bak へ退避)">保存</button>
+	<button id="helpBtn" class="icon" title="使い方 (F1)">?</button>
 	<button id="logBtn" class="icon" title="ログ">≡</button>
 </header>
 
@@ -34,9 +35,10 @@
 		</div>
 		<div id="tree"></div>
 		<div class="pane-foot">
+			<button id="moveUpBtn" class="icon" disabled title="ひとつ上へ (フォルダは中身ごと)">▲</button>
+			<button id="moveDownBtn" class="icon" disabled title="ひとつ下へ (フォルダは中身ごと)">▼</button>
 			<button id="renameBtn" disabled title="レイヤ名を変更 (F2 / 名前をダブルクリック)">名前</button>
-			<button id="dupBtn" disabled title="選択中のテキストレイヤを複製">複製</button>
-			<button id="addBtn" disabled title="選択中のレイヤを雛形に新規テキストレイヤを追加">新規追加</button>
+			<button id="dupBtn" disabled title="選択中のテキストレイヤを複製する (名前と本文はその場で決められる)">複製</button>
 		</div>
 	</nav>
 
@@ -58,6 +60,11 @@
 		</div>
 		<div id="canvasWrap">
 			<canvas id="stage"></canvas>
+		</div>
+		<div id="viewNote">
+			<span class="note-icon">⚠</span>
+			<span id="viewNoteText"></span>
+			<button id="viewNoteMore" class="linkish">詳しく</button>
 		</div>
 	</section>
 
@@ -175,6 +182,38 @@
 				合成プレビューは Photoshop で開き直すまで更新されません。
 			</p>
 		</div>
+	</div>
+</div>
+
+<!-- レイヤの複製 -->
+<div id="dupDialog" class="modal" hidden>
+	<div class="modal-box narrow">
+		<div class="modal-head">テキストレイヤを複製<button class="icon close" data-close>×</button></div>
+		<div class="modal-body">
+			<p class="hint">
+				選択中のテキストレイヤを複製する。書式・フォント・位置・流し込み枠は
+				複製元をそのまま引き継ぐ (位置を変えたい場合は Photoshop 側で移動)。
+				<b>本文を書き換えれば、実質「新規テキストレイヤの追加」になる。</b>
+			</p>
+			<div class="row">
+				<label style="flex:none">名前</label>
+				<input type="text" id="dupName" spellcheck="false">
+			</div>
+			<label class="block-label">本文 (書式タグを含む)</label>
+			<textarea id="dupText" spellcheck="false" rows="5"></textarea>
+			<div class="row" style="margin-top:10px; justify-content:flex-end">
+				<button id="dupClear">本文を空にする</button>
+				<button id="dupGo" class="primary">複製する</button>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- ヘルプ -->
+<div id="helpDialog" class="modal" hidden>
+	<div class="modal-box wide">
+		<div class="modal-head">psdtext の使い方<button class="icon close" data-close>×</button></div>
+		<div class="modal-body" id="helpBody">読み込み中…</div>
 	</div>
 </div>
 

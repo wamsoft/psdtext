@@ -95,6 +95,7 @@ private:
 		if (op == "name"    && req.method == "POST") return opSetName(req);
 		if (op == "align"   && req.method == "POST") return opSetAlign(req);
 		if (op == "duplicate" && req.method == "POST") return opDuplicate(req);
+		if (op == "move"      && req.method == "POST") return opMove(req);
 		if (op == "save"    && req.method == "POST") return opSave(req);
 		if (op == "image"   && req.method == "GET")  return opImage(req);
 		if (op == "export"  && req.method == "GET")  return opExport(req);
@@ -229,6 +230,28 @@ private:
 			return Response::error(400, err);
 		notifyChanged();
 		Json out = doc_.info();
+		out.set("tree",  doc_.tree());
+		out.set("texts", doc_.texts());
+		return Response::json(out);
+	}
+
+	//-----------------------------------------------------------------------
+	/// 同じ階層の中でレイヤを 1 つ上/下へ動かす。フォルダは中身ごと動く。
+	Response opMove(const Request& req) {
+		Response deny = requireOpen();
+		if (deny.status != 200) return deny;
+
+		const Json& j = req.json();
+		int index = (int)j["index"].asInt(-1);
+		bool up = (j["direction"].asStr("up") != "down");
+
+		std::string err;
+		int ni = doc_.moveLayer(index, up, err);
+		if (ni < 0) return Response::error(400, err);
+		notifyChanged();
+
+		Json out = doc_.info();
+		out.set("index", Json(ni));
 		out.set("tree",  doc_.tree());
 		out.set("texts", doc_.texts());
 		return Response::json(out);

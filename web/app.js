@@ -130,6 +130,7 @@ function renderTree() {
 
 	// PSD の layerList は下から上。Photoshop の表示に合わせて逆順にする。
 	for (const l of [...state.tree].reverse()) {
+		if (l.kind === 'divider') continue;   // フォルダの区切りは内部表現なので出さない
 		if (hiddenByCollapse(l)) continue;
 		if (!matchesFilter(l)) continue;
 
@@ -189,9 +190,10 @@ function renderTree() {
 	}
 
 	const sel = state.selected === null ? null : nodeOf(state.selected);
-	$('#renameBtn').disabled = !sel;                 // 名前はどのレイヤでも変えられる
-	$('#dupBtn').disabled = !(sel && sel.text);
-	$('#addBtn').disabled = !(sel && sel.text);
+	$('#renameBtn').disabled   = !sel;                 // 名前はどのレイヤでも変えられる
+	$('#dupBtn').disabled      = !(sel && sel.text);   // 複製はテキストレイヤのみ
+	$('#moveUpBtn').disabled   = !sel;
+	$('#moveDownBtn').disabled = !sel;
 }
 
 //---------------------------------------------------------------------------
@@ -261,6 +263,7 @@ async function redraw() {
 		const shown = state.tree.filter(l => l.hasPixels &&
 			state.visible.get(l.index) !== false).length;
 		$('#viewStatus').textContent = `${w}×${h} / 表示 ${shown} レイヤ`;
+		updateViewNote();
 	} catch (e) {
 		$('#viewStatus').textContent = '合成に失敗: ' + e.message;
 	}
@@ -281,6 +284,49 @@ function dpr() { return window.devicePixelRatio || 1; }
 // ままなので、CSS サイズを backing*zoom/dpr にすることで 100% が実ドット等倍
 // (1 画像 px = 1 デバイス px) になる。こうしないと 200% 表示の環境で 100% が
 // 倍ドットになり、原寸確認にならない。
+/// canvas に相当が無く、近いモードで代用しているブレンド
+const APPROX_BLENDS = new Set(['lighter']);
+
+/// プレビューの限界を、いま開いている PSD の中身に即して書く。
+/// 「一般論としての注意書き」だけだと読み飛ばされるので、実際に影響が出て
+/// いるものを名指しする。
+function updateViewNote() {
+	const parts = [];
+	const vis = (l) => state.visible.get(l.index) !== false;
+
+	const adjust = state.tree.filter(l => l.kind === 'adjust' && vis(l)).length;
+	if (adjust) parts.push(`調整レイヤ ${adjust} 枚は未反映`);
+
+	// グループのブレンド / 不透明度は反映していない
+	const groups = state.tree.filter(l => l.kind === 'folder' && vis(l) &&
+		((l.blend && l.blend !== 'source-over') || (l.opacity ?? 255) < 255)).length;
+	if (groups) parts.push(`グループの合成設定 ${groups} 件は未反映`);
+
+	const approx = state.tree.filter(l => vis(l) && APPROX_BLENDS.has(l.blend)).length;
+	if (approx) parts.push(`代用しているブレンド ${approx} 件`);
+
+	// 仮描画しているレイヤと、そのフォントがこの PC に無いもの
+	if (state.renderText) {
+		const drawn = state.texts.filter(t => t.dirty);
+		if (drawn.length) {
+			const missing = [...new Set(drawn.map(t => t.font)
+				.filter(f => f && !fontAvailable(f)))];
+			parts.push(missing.length
+				? `テキスト ${drawn.length} 件を仮描画中 (フォント ${missing.join(', ')} は代替表示)`
+				: `テキスト ${drawn.length} 件を仮描画中`);
+		}
+	}
+
+	// 基本の注意は必ず残す。レイヤ効果 (lfx2) は検出していないので、
+	// 具体的な指摘が出たときにこの一文が消えると見落としに繋がる。
+	const note = $('#viewNoteText');
+	let text = '簡易合成: 調整レイヤ・レイヤ効果・グループの合成設定は未反映。';
+	if (parts.length) text += ' この PSD では ' + parts.join(' / ') + '。';
+	text += ' 最終確認は Photoshop で。';
+	note.textContent = text;
+	$('#viewNote').classList.toggle('has-issue', parts.length > 0);
+}
+
 function applyZoom() {
 	const canvas = $('#stage');
 	const d = dpr();
@@ -532,29 +578,53 @@ function renameSelected() {
 	}
 }
 
-async function duplicateLayer(asNew) {
+/// 複製ダイアログを開く。本文を書き換えれば実質「新規追加」になるので、
+/// 「複製」と「新規追加」でボタンを分けず 1 本にしている。
+function openDupDialog() {
 	const t = state.selected === null ? null : textOf(state.selected);
 	if (!t) return;
-	const body = { index: t.index };
-	if (asNew) {
-		const name = prompt('新しいレイヤ名', t.name + ' のコピー');
-		if (name === null) return;
-		body.name = name;
-		body.text = 'テキスト';
-	} else {
-		body.name = t.name + ' のコピー';
-	}
+	$('#dupName').value = t.name + ' のコピー';
+	$('#dupText').value = t.text;
+	$('#dupDialog').hidden = false;
+	$('#dupName').focus();
+	$('#dupName').select();
+}
+
+async function duplicateLayer() {
+	const t = state.selected === null ? null : textOf(state.selected);
+	if (!t) return;
+	const body = {
+		index: t.index,
+		name: $('#dupName').value.trim() || (t.name + ' のコピー'),
+		text: $('#dupText').value,
+	};
 	try {
 		const r = await app.post('/api/psd/duplicate', body);
+		$('#dupDialog').hidden = true;
+		$('#editText').dataset.index = '';
 		applyDoc(r, { keepVisibility: true });
-		// 新しく出来たレイヤも表示 ON にしておく
 		if (typeof r.index === 'number') {
 			state.visible.set(r.index, true);
 			select(r.index);
 		}
-		toast(asNew ? 'テキストレイヤを追加しました' : 'レイヤを複製しました');
+		toast('レイヤを複製しました');
 	} catch (e) {
 		toast(e.message, true);
+	}
+}
+
+/// 同じ階層の中でひとつ上/下へ動かす (フォルダは中身ごと)
+async function moveLayer(up) {
+	if (state.selected === null) return;
+	try {
+		const r = await app.post('/api/psd/move',
+		                         { index: state.selected, direction: up ? 'up' : 'down' });
+		$('#editText').dataset.index = '';
+		applyDoc(r, { keepVisibility: true });
+		if (typeof r.index === 'number') select(r.index);
+		scheduleRedraw();
+	} catch (e) {
+		toast(e.message, true);   // 端で止まったときもここに来る
 	}
 }
 
@@ -771,6 +841,24 @@ function setupReplBridge() {
 	app.command('apply',  () => applyText());
 	app.command('save',   () => save());
 	app.command('align',  (a) => setAlign(typeof a === 'number' ? a : a.align));
+	app.command('move', async (a) => {
+		const up = (typeof a === 'string') ? a !== 'down' : (a.up ?? a.direction !== 'down');
+		if (a && a.index !== undefined) state.selected = a.index;
+		await moveLayer(up);
+		return state.selected;
+	});
+	app.command('duplicate', async (a) => {
+		const t = textOf(state.selected);
+		if (!t) throw new Error('テキストレイヤを選んでください');
+		const r = await app.post('/api/psd/duplicate', {
+			index: t.index,
+			name: (a && a.name) || (t.name + ' のコピー'),
+			text: (a && a.text !== undefined) ? a.text : t.text,
+		});
+		applyDoc(r, { keepVisibility: true });
+		if (typeof r.index === 'number') select(r.index);
+		return r.index;
+	});
 	app.command('rename', async (a) => {
 		const index = (a.index !== undefined) ? a.index : state.selected;
 		const r = await app.post('/api/psd/name', { index, name: a.name ?? String(a) });
@@ -850,6 +938,8 @@ async function main() {
 	});
 	$('#saveGo').addEventListener('click', save);
 
+	$('#helpBtn').addEventListener('click', () => openHelp());
+	$('#viewNoteMore').addEventListener('click', () => openHelp('#h-limits'));
 	$('#logBtn').addEventListener('click', () => { $('#logPanel').hidden = !$('#logPanel').hidden; });
 	$('#logClose').addEventListener('click', () => { $('#logPanel').hidden = true; });
 
@@ -888,8 +978,11 @@ async function main() {
 		scheduleRedraw();
 	});
 	$('#renameBtn').addEventListener('click', renameSelected);
-	$('#dupBtn').addEventListener('click', () => duplicateLayer(false));
-	$('#addBtn').addEventListener('click', () => duplicateLayer(true));
+	$('#dupBtn').addEventListener('click', openDupDialog);
+	$('#dupGo').addEventListener('click', duplicateLayer);
+	$('#dupClear').addEventListener('click', () => { $('#dupText').value = ''; $('#dupText').focus(); });
+	$('#moveUpBtn').addEventListener('click', () => moveLayer(true));
+	$('#moveDownBtn').addEventListener('click', () => moveLayer(false));
 
 	// --- 中央ペイン ---
 	$('#zoomIn').addEventListener('click', () => { state.zoom = Math.min(8, state.zoom * 1.25); applyZoom(); });
@@ -900,6 +993,7 @@ async function main() {
 		state.renderText = e.target.checked;
 		scheduleRedraw();
 	});
+	updateViewNote();
 	$('#showBounds').addEventListener('change', e => {
 		state.showBounds = e.target.checked;
 		scheduleRedraw();
@@ -944,6 +1038,7 @@ async function main() {
 
 	document.addEventListener('keydown', e => {
 		if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); $('#saveBtn').click(); }
+		if (e.key === 'F1') { e.preventDefault(); openHelp(); }
 		if (e.key === 'F2' && document.activeElement !== $('#editText')) {
 			e.preventDefault();
 			renameSelected();
@@ -956,6 +1051,36 @@ async function main() {
 	const startup = await app.get('/api/app/startup').catch(() => null);
 	if (startup && startup.open) await openPsd(startup.open);
 	else renderAll();
+}
+
+/// 内蔵ヘルプを開く (web/help.html を読み込む。exe にも埋め込まれている)
+let helpLoaded = false;
+async function openHelp(anchor) {
+	const dlg = $('#helpDialog');
+	dlg.hidden = false;
+	if (!helpLoaded) {
+		try {
+			const res = await fetch('./help.html');
+			$('#helpBody').innerHTML = await res.text();
+			helpLoaded = true;
+			// 目次のリンクはモーダル内でスクロールさせる (ページ遷移させない)
+			$('#helpBody').querySelectorAll('.help-toc a').forEach(a => {
+				a.addEventListener('click', (e) => {
+					e.preventDefault();
+					const el = $('#helpBody').querySelector(a.getAttribute('href'));
+					if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+				});
+			});
+		} catch (e) {
+			$('#helpBody').textContent = 'ヘルプを読み込めませんでした: ' + e.message;
+		}
+	}
+	if (anchor) {
+		const el = $('#helpBody').querySelector(anchor);
+		if (el) el.scrollIntoView({ block: 'start' });
+	} else {
+		$('#helpBody').scrollTop = 0;
+	}
 }
 
 async function refreshAll() {

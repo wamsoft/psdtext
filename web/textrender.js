@@ -120,15 +120,31 @@ export function drawText(ctx, rect, lines, base) {
 	ctx.save();
 	ctx.textBaseline = 'alphabetic';
 
-	// 行高は最大サイズの 1.4 倍 (Photoshop の自動行送りに近い経験則)
-	const lineHeights = lines.map(line => {
+	// 各行の最大文字サイズ (行送りとアセントの基準)
+	const lineMax = lines.map(line => {
 		let mx = base.size || 12;
 		for (const s of line.spans) mx = Math.max(mx, s.style.size || mx);
-		return mx * 1.4;
+		return mx;
 	});
+	// 行送りは最大サイズの 1.4 倍 (Photoshop の自動行送りに近い経験則)
+	const lineHeights = lineMax.map(m => m * 1.4);
 
-	// 最初のベースラインは 1 行目の高さぶん下げる
-	let y = t + (lineHeights[0] || 16) * 0.82;
+	// 1 行目のベースラインは「上端 + アセント」。行送りぶん下げてしまうと
+	// 1 行あたり 0.3〜0.4 文字ぶん低く描かれ、元のラスタと目に見えてずれる。
+	// アセントは実測できるなら実測し、取れなければ 0.82 * サイズで概算する。
+	let firstAscent = (lineMax[0] || 16) * 0.82;
+	if (lines[0] && lines[0].spans.length) {
+		const sp = lines[0].spans.reduce(
+			(a, b) => ((b.style.size || 0) > (a.style.size || 0) ? b : a));
+		ctx.font = cssFont(sp.style);
+		const m = ctx.measureText(sp.text || 'M');
+		if (m.actualBoundingBoxAscent > 0) {
+			// 実測アセントは字形依存なので、フォントの標準アセント寄りに寄せる
+			firstAscent = Math.max(m.actualBoundingBoxAscent,
+			                       (sp.style.size || lineMax[0]) * 0.72);
+		}
+	}
+	let y = t + firstAscent;
 
 	lines.forEach((line, li) => {
 		// 行全体の幅を測ってから、行揃えに応じて開始 x を決める
