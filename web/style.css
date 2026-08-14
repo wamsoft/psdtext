@@ -93,7 +93,7 @@ code { background: var(--bg); padding: 1px 4px; border-radius: 3px; }
 /*--- レイアウト -------------------------------------------------------*/
 #layout {
 	display: grid;
-	grid-template-columns: 260px 1fr 420px;
+	grid-template-columns: 280px 1fr 400px;
 	height: calc(100% - 39px);
 }
 .pane { overflow: auto; border-right: 1px solid var(--border); background: var(--bg-pane); }
@@ -167,11 +167,15 @@ code { background: var(--bg); padding: 1px 4px; border-radius: 3px; }
 .meta .v { word-break: break-all; }
 
 #editText {
-	flex: 1;
-	min-height: 140px;
+	/* 伸ばしっぱなしにせず、内容に対して十分な高さで止める。
+	   下にプレビューが無くなったので flex:1 だと間延びしていた。 */
+	flex: 0 1 auto;
+	height: 30vh;
+	min-height: 120px;
+	max-height: 46vh;
 	margin: 8px 10px;
 	padding: 8px;
-	resize: none;
+	resize: vertical;
 	white-space: pre-wrap;
 	font: 13px/1.6 "Cascadia Mono", Consolas, "Yu Gothic UI", monospace;
 }
@@ -312,3 +316,92 @@ code { background: var(--bg); padding: 1px 4px; border-radius: 3px; }
 }
 #toast[hidden] { display: none; }
 #toast.error { border-color: var(--error); color: var(--error); }
+
+/*--- 中央: 合成プレビュー --------------------------------------------*/
+#viewPane {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	border-right: 1px solid var(--border);
+	background: var(--bg);
+}
+.view-bar {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 5px 10px;
+	background: var(--bg-pane);
+	border-bottom: 1px solid var(--border);
+	font-size: 12px;
+}
+.view-bar .spacer { flex: 1; }
+#canvasWrap {
+	flex: 1;
+	overflow: auto;
+	display: grid;
+	place-items: center;
+	padding: 12px;
+	/* 透過部分が分かる市松模様 */
+	background:
+		linear-gradient(45deg, #8884 25%, transparent 25%, transparent 75%, #8884 75%) 0 0/20px 20px,
+		linear-gradient(45deg, #8884 25%, transparent 25%, transparent 75%, #8884 75%) 10px 10px/20px 20px;
+}
+#stage {
+	image-rendering: pixelated;
+	box-shadow: 0 0 0 1px var(--border), 0 4px 24px #0004;
+	background: #fff;
+}
+
+/*--- 左ペインの追加パーツ --------------------------------------------*/
+.pane-title { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.title-actions { display: flex; gap: 3px; }
+button.mini {
+	padding: 1px 6px;
+	font-size: 11px;
+	border-radius: 3px;
+	text-transform: none;
+	letter-spacing: 0;
+}
+button.mini.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.twist { width: 12px; flex: none; text-align: center; color: var(--fg-dim); cursor: pointer; }
+.eye {
+	width: 16px;
+	flex: none;
+	text-align: center;
+	cursor: pointer;
+	font-size: 11px;
+	opacity: .85;
+}
+.eye.off { opacity: .3; }
+.eye:hover { opacity: 1; }
+
+.pane-foot {
+	position: sticky;
+	bottom: 0;
+	display: flex;
+	gap: 6px;
+	padding: 6px 8px;
+	background: var(--bg-pane);
+	border-top: 1px solid var(--border);
+}
+.pane-foot button { flex: 1; font-size: 12px; }
+
+/*--- 右ペインの書式バー ----------------------------------------------*/
+.style-bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	padding: 8px 10px 4px;
+	flex: none;
+	font-size: 12px;
+}
+.style-bar label { display: inline-flex; align-items: center; gap: 4px; color: var(--fg-dim); }
+.style-bar select { max-width: 150px; }
+.style-bar .num { width: 68px; }
+.align-group, .style-group { display: inline-flex; gap: 2px; }
+#styleHint { padding: 0 10px; margin: 2px 0 0; flex: none; }
+
+.modal-box.narrow { width: min(480px, 92vw); }
+#sysFontList { height: 260px; }

@@ -122,6 +122,43 @@ const char* kindName(const psd::LayerInfo& l)
 	}
 }
 
+//---------------------------------------------------------------------------
+/// PSD のブレンドモード → canvas の globalCompositeOperation
+///
+/// canvas は Photoshop のブレンドモードの大半を同名で持っている。持っていない
+/// もの (vivid light 等) は見た目の近いものへ寄せる。完全一致ではないので、
+/// 最終確認は Photoshop で行う前提の「作業用プレビュー」という位置づけ。
+const char* blendName(psd::BlendMode m)
+{
+	switch (m) {
+		case psd::BLEND_MODE_MULTIPLY:      return "multiply";
+		case psd::BLEND_MODE_SCREEN:        return "screen";
+		case psd::BLEND_MODE_OVERLAY:       return "overlay";
+		case psd::BLEND_MODE_DARKEN:        return "darken";
+		case psd::BLEND_MODE_LIGHTEN:       return "lighten";
+		case psd::BLEND_MODE_COLOR_BURN:    return "color-burn";
+		case psd::BLEND_MODE_COLOR_DODGE:   return "color-dodge";
+		case psd::BLEND_MODE_HARD_LIGHT:    return "hard-light";
+		case psd::BLEND_MODE_SOFT_LIGHT:    return "soft-light";
+		case psd::BLEND_MODE_DIFFERENCE:    return "difference";
+		case psd::BLEND_MODE_EXCLUSION:     return "exclusion";
+		case psd::BLEND_MODE_HUE:           return "hue";
+		case psd::BLEND_MODE_SATURATION:    return "saturation";
+		case psd::BLEND_MODE_COLOR:         return "color";
+		case psd::BLEND_MODE_LUMINOSITY:    return "luminosity";
+		// canvas に相当が無いもの: 近いものへ寄せる
+		case psd::BLEND_MODE_LINEAR_DODGE:  return "lighter";
+		case psd::BLEND_MODE_LINEAR_BURN:   return "color-burn";
+		case psd::BLEND_MODE_VIVID_LIGHT:   return "hard-light";
+		case psd::BLEND_MODE_LINEAR_LIGHT:  return "hard-light";
+		case psd::BLEND_MODE_PIN_LIGHT:     return "hard-light";
+		case psd::BLEND_MODE_DARKER_COLOR:  return "darken";
+		case psd::BLEND_MODE_LIGHTER_COLOR: return "lighten";
+		case psd::BLEND_MODE_SUBTRACT:      return "difference";
+		default:                            return "source-over";
+	}
+}
+
 /// レイヤ名は unicode 名 (luni) を優先し、無ければ pascal 名を使う
 std::string layerName(const psd::LayerInfo& l)
 {
@@ -190,6 +227,15 @@ void Document::rebuildIndex()
 		r.top     = l.top;
 		r.right   = l.right;
 		r.bottom  = l.bottom;
+		r.blend       = blendName(l.blendMode);
+		r.opacity     = l.opacity;
+		r.fillOpacity = l.fill_opacity;
+		r.clipping    = (l.clipping != 0);
+		// フォルダ / 区切り / 空矩形は描画対象にならない
+		r.hasPixels = (l.layerType != psd::LAYER_TYPE_FOLDER &&
+		               l.layerType != psd::LAYER_TYPE_HIDDEN &&
+		               l.right > l.left && l.bottom > l.top &&
+		               !l.channels.empty());
 		layers_.push_back(std::move(r));
 	}
 
@@ -291,6 +337,11 @@ appserve::Json Document::tree() const
 		o.set("kind",    Json(r.kind));
 		o.set("visible", Json(r.visible));
 		o.set("text",    Json(r.isText));
+		o.set("blend",   Json(r.blend));
+		o.set("opacity", Json(r.opacity));
+		o.set("fillOpacity", Json(r.fillOpacity));
+		o.set("clipping",  Json(r.clipping));
+		o.set("hasPixels", Json(r.hasPixels));
 		Json rect = Json::array();
 		rect.push(Json(r.left));  rect.push(Json(r.top));
 		rect.push(Json(r.right)); rect.push(Json(r.bottom));

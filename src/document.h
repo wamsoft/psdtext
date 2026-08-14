@@ -25,9 +25,16 @@ struct LayerRow {
 	std::string name;              ///< UTF-8
 	std::string path;              ///< "フォルダ/レイヤ" (UTF-8)
 	std::string kind;              ///< "text" / "folder" / "image" / "adjust" / "fill"
-	bool        visible  = true;
+	bool        visible  = true;   ///< PSD が持っている可視フラグ (初期値として使う)
 	bool        isText   = false;
 	int         left = 0, top = 0, right = 0, bottom = 0;
+
+	// --- 合成に必要な情報 ---
+	std::string blend;             ///< canvas の globalCompositeOperation 名
+	int         opacity  = 255;    ///< 0..255
+	int         fillOpacity = 255;
+	bool        clipping = false;  ///< 直下のレイヤでクリップされる
+	bool        hasPixels = false; ///< 描画できる画素を持つか (フォルダ等は false)
 };
 
 //---------------------------------------------------------------------------
