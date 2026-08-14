@@ -370,13 +370,21 @@ private:
 		Response deny = requireOpen();
 		if (deny.status != 200) return deny;
 
-		std::string path = req.json()["path"].asStr();
+		const Json& body = req.json();
+		std::string path = body["path"].asStr();
+
+		// indices があれば、そのレイヤだけ書き出す (選択したものだけ渡すとき)
+		std::vector<int> only;
+		if (body.has("indices") && body["indices"].isArr()) {
+			for (const auto& v : body["indices"].elements()) only.push_back((int)v.asInt(-1));
+		}
+
 		std::string err;
-		if (!doc_.exportCsvTo(path, err)) return Response::error(500, err);
+		if (!doc_.exportCsvTo(path, err, only)) return Response::error(500, err);
 
 		Json j = Json::object();
 		j.set("path",  Json(path.empty() ? doc_.defaultCsvPath() : path));
-		j.set("texts", Json((long long)doc_.textRows().size()));
+		j.set("texts", Json((long long)(only.empty() ? doc_.textRows().size() : only.size())));
 		return Response::json(j);
 	}
 

@@ -84,6 +84,48 @@
 	<!-- 右: 編集 -->
 	<aside id="editPane" class="pane">
 		<div class="pane-title" data-i18n="edit.title">Edit</div>
+
+		<!-- 複数選択しているときの一括操作 (言語違いをまとめて扱うため) -->
+		<div id="multiPane" hidden>
+			<div class="fmt-title"><span id="multiCount"></span></div>
+			<div id="multiList" class="multi-list"></div>
+
+			<div class="fmt-title" data-i18n="multi.styleTitle">Initial formatting for all of them</div>
+			<div class="style-bar">
+				<button id="mFontBtn" class="mini" data-i18n="multi.font">Font…</button>
+				<label><span data-i18n="edit.size">Size</span>
+					<input type="number" id="mSize" class="num" min="1" max="2000" step="0.5">
+				</label>
+				<button id="mSizeGo" class="mini" data-i18n="multi.apply">Apply</button>
+				<label><span data-i18n="edit.color">Color</span>
+					<input type="color" id="mColor" class="swatch">
+				</label>
+				<button id="mColorGo" class="mini" data-i18n="multi.apply">Apply</button>
+			</div>
+			<div class="style-bar">
+				<span class="style-group">
+					<button class="mini" id="mBold" data-i18n-title="edit.bold"><b>B</b></button>
+					<button class="mini" id="mItalic" data-i18n-title="edit.italic"><i>I</i></button>
+					<button class="mini" id="mUnder" data-i18n-title="edit.under"><u>U</u></button>
+				</span>
+				<span class="align-group">
+					<button class="mini malign" data-align="0" data-i18n-title="edit.alignL">⯇</button>
+					<button class="mini malign" data-align="2" data-i18n-title="edit.alignC">⯈⯇</button>
+					<button class="mini malign" data-align="1" data-i18n-title="edit.alignR">⯈</button>
+				</span>
+				<span class="spacer"></span>
+				<button id="mCopyStyle" class="mini" data-i18n="multi.copyStyle" data-i18n-title="multi.copyStyle.title">Copy formatting</button>
+				<button id="mPasteStyle" class="mini" disabled data-i18n="multi.pasteStyle" data-i18n-title="multi.pasteStyle.title">Paste</button>
+			</div>
+			<p class="hint" data-i18n="multi.hint"></p>
+
+			<div class="style-bar">
+				<button id="mDup" data-i18n="multi.dup" data-i18n-title="multi.dup.title">Duplicate…</button>
+				<button id="mExport" data-i18n="multi.export" data-i18n-title="multi.export.title">Export these to CSV</button>
+			</div>
+			<div id="multiStatus" class="status"></div>
+		</div>
+
 		<div id="editMeta" class="meta"></div>
 
 		<!-- 位置と流し込み枠。上の「位置」表示のすぐ下に置いて、元の値と
@@ -176,12 +218,29 @@
 		<div class="modal-head"><span data-i18n="dlg.dupTitle">Duplicate a text layer</span><button class="icon close" data-close>×</button></div>
 		<div class="modal-body">
 			<p class="hint" data-i18n="dlg.dupHint"></p>
-			<div class="row">
-				<label style="flex:none" data-i18n="dlg.name">Name</label>
-				<input type="text" id="dupName" spellcheck="false">
+
+			<!-- 1 枚だけのとき -->
+			<div id="dupOne">
+				<div class="row">
+					<label style="flex:none" data-i18n="dlg.name">Name</label>
+					<input type="text" id="dupName" spellcheck="false">
+				</div>
+				<label class="block-label" data-i18n="dlg.body">Body</label>
+				<textarea id="dupText" spellcheck="false" rows="5"></textarea>
 			</div>
-			<label class="block-label" data-i18n="dlg.body">Body</label>
-			<textarea id="dupText" spellcheck="false" rows="5"></textarea>
+
+			<!-- 複数選択しているとき: 名前の付け方だけ決める -->
+			<div id="dupMany" hidden>
+				<p id="dupCount" class="summary"></p>
+				<div class="row">
+					<label style="flex:none" data-i18n="dlg.dupPrefix">Prefix</label>
+					<input type="text" id="dupPrefix" spellcheck="false" placeholder="en_">
+					<label style="flex:none" data-i18n="dlg.dupSuffix">Suffix</label>
+					<input type="text" id="dupSuffix" spellcheck="false">
+				</div>
+				<p class="hint" data-i18n="dlg.dupManyHint"></p>
+			</div>
+
 			<div class="row" style="margin-top:10px; justify-content:flex-end">
 				<button id="dupClear" data-i18n="dlg.dupClear">Clear the body</button>
 				<button id="dupGo" class="primary" data-i18n="dlg.dupGo">Duplicate</button>
@@ -215,6 +274,12 @@
 		<div class="modal-head"><span data-i18n="dlg.expTitle">Export a CSV</span><button class="icon close" data-close>×</button></div>
 		<div class="modal-body">
 			<p class="hint" data-i18n="dlg.expHint"></p>
+			<div class="row" id="expSelRow" hidden>
+				<label class="chk">
+					<input type="checkbox" id="expSelOnly">
+					<span id="expSelCount"></span>
+				</label>
+			</div>
 			<div class="row">
 				<input type="text" id="expPath" spellcheck="false">
 				<button id="expGo" class="primary" data-i18n="dlg.expGo">Export</button>

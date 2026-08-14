@@ -149,11 +149,13 @@ public:
 
 	// --- CSV ---------------------------------------------------------------
 	/// UTF-8 BOM 付き CSV (lyid, path, text)。Excel でそのまま開ける。
-	std::string exportCsv() const;
+	/// only が空でなければ、その index のレイヤだけを書き出す。
+	std::string exportCsv(const std::vector<int>& only = {}) const;
 	/// PSD の隣に置く既定の CSV パス (…/foo.psd → …/foo_texts.csv)
 	std::string defaultCsvPath() const;
 	/// CSV をファイルへ書き出す (path が空なら defaultCsvPath)
-	bool exportCsvTo(const std::string& path, std::string& err) const;
+	bool exportCsvTo(const std::string& path, std::string& err,
+	                 const std::vector<int>& only = {}) const;
 	/// CSV をファイルから読む (バイト列のまま。文字コードは importCsv が見る)
 	bool readFile(const std::string& path, std::string& out, std::string& err) const;
 	/// CSV を取り込む。apply=false なら判定だけ行い、文書は変更しない。

@@ -88,6 +88,14 @@ Chips can be clicked to select, and deleted with `Backspace` like a single
 character. Selecting a range of text formats just that range. Formatting changes
 are applied immediately; only typed text needs "Apply".
 
+**Layers can be selected in bulk** (Ctrl+click to add or remove, Shift+click for a
+range). With two or more selected the right pane turns into bulk operations:
+initial formatting (font / size / colour / B·I·U / alignment) for all of them,
+copy & paste formatting, **duplicate with a name prefix**, and CSV export limited
+to the selection. Duplication **carries the layer mask along**, which makes it
+usable as the groundwork for another language — and since the copies stay
+selected, a bulk font change follows in one more click.
+
 **▲▼** at the bottom of the left pane reorder within the same level (folders move
 with their contents). **Duplicate** lets you set the name and body on the spot, so
 rewriting the body makes it, in effect, "add a new text layer".

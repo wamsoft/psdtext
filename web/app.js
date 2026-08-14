@@ -48,6 +48,10 @@ const state = {
 	csvPath: '',          // 最後に書き出した CSV (読み込みの既定にする)
 	settings: {},         // 画面をまたいで残す設定 (前回のフォルダなど)
 	listFilter: { text: false, dirty: false, visible: false },  // 一覧に出す対象
+	multi: new Set(),     // 選択中のレイヤ (1 枚のときは selected と同じ)
+	copiedStyle: null,    // 「書式をコピー」で控えた初期書式
+	multiStatus: null,    // 一括操作の結果表示
+	exportSel: false,     // 書き出しダイアログを「選択ぶんだけ」で開く
 	headTag: '',          // 本文の先頭にある基準への指定 (編集欄には出さない)
 	composing: false,     // IME 変換中
 };
@@ -245,15 +249,204 @@ function renderTree() {
 
 		row.append(twist, eye, icon, name);
 		row.title = l.path;
-		row.addEventListener('click', () => select(l.index));
+		if (state.multi.has(l.index) && state.multi.size > 1) row.classList.add('multi');
+		row.addEventListener('click', (e) => clickLayer(l.index, e));
 		host.appendChild(row);
 	}
 
 	const sel = state.selected === null ? null : nodeOf(state.selected);
+	const multi = selectedTextLayers();
 	$('#renameBtn').disabled   = !sel;                 // 名前はどのレイヤでも変えられる
-	$('#dupBtn').disabled      = !(sel && sel.text);   // 複製はテキストレイヤのみ
+	$('#dupBtn').disabled      = !multi.length;        // 複製はテキストレイヤのみ
 	$('#moveUpBtn').disabled   = !sel;
 	$('#moveDownBtn').disabled = !sel;
+}
+
+//---------------------------------------------------------------------------
+// 複数選択
+//
+// 1 枚だけ選んでいるときは今までどおりの編集画面。複数のときは右ペインが
+// 「N 枚まとめて」の操作に切り替わる (言語違いの一括処理のため)。
+//---------------------------------------------------------------------------
+
+/// 選択のうちテキストレイヤ (一括操作の対象)
+function selectedTextLayers() {
+	return [...state.multi].map(i => textOf(i)).filter(Boolean);
+}
+
+/// ツリーの行をクリックしたとき。
+///   そのまま  : 1 枚だけ選ぶ
+///   Ctrl      : 足す / 外す
+///   Shift     : 直前に選んだ行からの範囲 (画面に並んでいる順)
+function clickLayer(index, e) {
+	if (e && (e.ctrlKey || e.metaKey)) {
+		if (state.multi.has(index) && state.multi.size > 1) {
+			state.multi.delete(index);
+			if (state.selected === index) state.selected = [...state.multi][0];
+		} else {
+			state.multi.add(index);
+			state.selected = index;
+		}
+		renderAll();
+		scheduleRedraw();
+		return;
+	}
+	if (e && e.shiftKey && state.selected !== null) {
+		const order = listedLayers().map(l => l.index);
+		const a = order.indexOf(state.selected);
+		const b = order.indexOf(index);
+		if (a >= 0 && b >= 0) {
+			const [s, t] = a <= b ? [a, b] : [b, a];
+			state.multi = new Set(order.slice(s, t + 1));
+			state.selected = index;
+			renderAll();
+			scheduleRedraw();
+			return;
+		}
+	}
+	select(index);
+}
+
+/// 一括操作の結果表示。更新通知で描き直されても消えないよう state で持つ。
+function setMultiStatus(msg, cls) {
+	state.multiStatus = msg ? { msg, cls } : null;
+	const el = $('#multiStatus');
+	el.textContent = msg || '';
+	el.className = 'status' + (cls ? ' ' + cls : '');
+}
+
+function renderMultiPane() {
+	const rows = [...state.multi].map(i => nodeOf(i)).filter(Boolean);
+	const texts = selectedTextLayers();
+	$('#multiCount').textContent = tr('multi.count', rows.length, texts.length);
+
+	const host = $('#multiList');
+	host.textContent = '';
+	for (const n of rows) {
+		const d = document.createElement('div');
+		d.className = 'multi-row' + (n.text ? '' : ' dim');
+		const k = document.createElement('span');
+		k.className = 'multi-kind';
+		k.textContent = n.text ? 'T' : (KIND_ICON[n.kind] || '·');
+		const nm = document.createElement('span');
+		nm.textContent = n.name;
+		d.append(k, nm);
+		d.title = n.path;
+		host.appendChild(d);
+	}
+
+	// 書式の一括操作はテキストレイヤが対象。1 枚も無ければ触れないようにする。
+	const noText = texts.length === 0;
+	for (const id of ['#mFontBtn', '#mSizeGo', '#mColorGo', '#mBold', '#mItalic',
+	                  '#mUnder', '#mCopyStyle', '#mDup', '#mExport'])
+		$(id).disabled = noText;
+	document.querySelectorAll('.malign').forEach(b => { b.disabled = noText; });
+	$('#mPasteStyle').disabled = noText || !state.copiedStyle;
+
+	// 選択の代表 (最後に触った 1 枚) の値を初期値として出しておく
+	const head = textOf(state.selected) || texts[0];
+	if (head) {
+		const st = tg.styleAtHead(head.text, baseOf(head));
+		$('#mSize').value = st.size ? Math.round(st.size * 10) / 10 : '';
+		$('#mColor').value = tg.normColor(st.color).toLowerCase();
+	}
+	const s = state.multiStatus;
+	$('#multiStatus').textContent = s ? s.msg : '';
+	$('#multiStatus').className = 'status' + (s && s.cls ? ' ' + s.cls : '');
+}
+
+//---------------------------------------------------------------------------
+/// 選択レイヤの初期書式をまとめて変える。
+/// 途中の書式マークには触らないので、「指定していないところだけ」が変わる。
+async function applyStyleToSelection(changes) {
+	const texts = selectedTextLayers();
+	if (!texts.length) return;
+
+	setMultiStatus(tr('multi.working'));
+	let n = 0, failed = 0;
+	for (const t of texts) {
+		const b = tg.baseStyle(baseOf(t));
+		const patch = {};
+		for (const k of Object.keys(changes)) {
+			// 読み込み時の値と同じなら指定を消す (余計なタグを残さない)
+			patch[k] = tg.sameValue(k, changes[k], b[k]) ? undefined : changes[k];
+		}
+		const head = tg.headMark(t.text);
+		const r = head ? tg.editMark(t.text, head, patch) : tg.editAt(t.text, 0, patch);
+		if (r.text === t.text) continue;
+		try {
+			const res = await app.post('/api/psd/text', { index: t.index, text: r.text });
+			Object.assign(textOf(t.index) || t, res);
+			n++;
+		} catch (e) { failed++; }
+	}
+	state.info.dirty = state.texts.filter(x => x.dirty).length;
+	renderAll();
+	scheduleRedraw();
+	setMultiStatus(failed ? tr('multi.doneFailed', n, failed) : tr('multi.done', n),
+	               failed ? 'error' : 'ok');
+}
+
+/// 太字などは、全部が ON なら OFF に、そうでなければ ON に揃える
+function toggleSelectionFlag(attr) {
+	const texts = selectedTextLayers();
+	if (!texts.length) return;
+	const allOn = texts.every(t => tg.styleAtHead(t.text, baseOf(t))[attr]);
+	return applyStyleToSelection({ [attr]: !allOn });
+}
+
+/// 行揃えは段落の指定なので専用の口を使う (全段落へ)
+async function applyAlignToSelection(align) {
+	const texts = selectedTextLayers();
+	if (!texts.length) return;
+	setMultiStatus(tr('multi.working'));
+	let n = 0;
+	for (const t of texts) {
+		try {
+			const r = await app.post('/api/psd/align', { index: t.index, align });
+			Object.assign(textOf(t.index) || t, r);
+			n++;
+		} catch (e) { /* 続ける */ }
+	}
+	state.info.dirty = state.texts.filter(x => x.dirty).length;
+	bodyEl().dataset.loaded = '';
+	renderAll();
+	scheduleRedraw();
+	setMultiStatus(tr('multi.done', n), 'ok');
+}
+
+/// 代表レイヤの初期書式を控える / 選択レイヤへ配る
+function copyStyleFromSelection() {
+	const t = textOf(state.selected) || selectedTextLayers()[0];
+	if (!t) return;
+	const st = tg.styleAtHead(t.text, baseOf(t));
+	state.copiedStyle = {
+		font: st.font, size: st.size, color: st.color,
+		bold: st.bold, italic: st.italic, underline: st.underline,
+		align: (t.paragraphJust && t.paragraphJust[0]) || 0,
+		from: t.name,
+	};
+	renderAll();
+	setMultiStatus(tr('multi.copied', t.name), 'ok');
+}
+
+async function pasteStyleToSelection() {
+	const s = state.copiedStyle;
+	if (!s) return;
+	await applyStyleToSelection({
+		font: s.font, size: s.size, color: s.color,
+		bold: s.bold, italic: s.italic, underline: s.underline,
+	});
+	await applyAlignToSelection(s.align);
+}
+
+/// いま一覧に出ている行 (Shift 範囲選択の順序に使う)
+function listedLayers() {
+	return [...state.tree].reverse().filter(l => {
+		if (l.kind === 'divider' || hiddenByCollapse(l)) return false;
+		if (l.kind === 'folder') return listFilterOn() ? folderHasVisibleChild(l.index) : true;
+		return matchesFilter(l) && passesListFilter(l);
+	});
 }
 
 //---------------------------------------------------------------------------
@@ -494,6 +687,7 @@ function setupCanvasDrag() {
 //---------------------------------------------------------------------------
 function select(index) {
 	state.selected = index;
+	state.multi = new Set(index === null ? [] : [index]);
 	renderTree();
 	renderEditor();
 	scheduleRedraw();
@@ -505,6 +699,16 @@ function renderEditor() {
 	const ta = $('#editText');
 	const meta = $('#editMeta');
 	meta.textContent = '';
+
+	// 複数選択しているときは、1 枚ぶんの編集ではなく一括操作の画面にする
+	const many = state.multi.size > 1;
+	$('#multiPane').hidden = !many;
+	for (const id of ['#editMeta', '#placeBar', '#basePanel', '#markPanel',
+	                  '#styleHint', '#editText', '.body-head', '.edit-actions']) {
+		const el = document.querySelector(id);
+		if (el) el.hidden = many;
+	}
+	if (many) { renderMultiPane(); return; }
 
 	const styleEls = ['#fontSel', '#sizeInput', '#fontAddBtn', '#boldBtn', '#italicBtn',
 	                  '#underBtn', '#colorInput', '#colorHex', '#markAddBtn',
@@ -1235,37 +1439,96 @@ function renameSelected() {
 
 /// 複製ダイアログを開く。本文を書き換えれば実質「新規追加」になるので、
 /// 「複製」と「新規追加」でボタンを分けず 1 本にしている。
+/// 複製ダイアログ。1 枚なら名前と本文をその場で決められ、複数選択なら
+/// 名前の頭 / 末尾に付ける文字だけを決める (言語別の下地づくり)。
 function openDupDialog() {
-	const t = state.selected === null ? null : textOf(state.selected);
-	if (!t) return;
-	$('#dupName').value = t.name + ' copy';
-	$('#dupText').value = t.text;
+	const texts = selectedTextLayers();
+	if (!texts.length) return;
+	const many = texts.length > 1;
+
+	$('#dupOne').hidden = many;
+	$('#dupMany').hidden = !many;
+	$('#dupCount').textContent = tr('multi.dupCount', texts.length);
+	if (many) {
+		$('#dupPrefix').value = state.settings.dupPrefix || '';
+		$('#dupSuffix').value = state.settings.dupSuffix || (state.settings.dupPrefix ? '' : ' copy');
+	} else {
+		const t = texts[0];
+		$('#dupName').value = t.name + ' copy';
+		$('#dupText').value = t.text;
+	}
 	$('#dupDialog').hidden = false;
-	$('#dupName').focus();
-	$('#dupName').select();
+	const focusEl = many ? $('#dupPrefix') : $('#dupName');
+	focusEl.focus();
+	focusEl.select();
 }
 
 async function duplicateLayer() {
-	const t = state.selected === null ? null : textOf(state.selected);
-	if (!t) return;
-	const body = {
-		index: t.index,
-		name: $('#dupName').value.trim() || (t.name + ' copy'),
-		text: $('#dupText').value,
-	};
-	try {
-		const r = await app.post('/api/psd/duplicate', body);
-		$('#dupDialog').hidden = true;
-		$('#editText').dataset.index = '';
-		applyDoc(r, { keepVisibility: true });
-		if (typeof r.index === 'number') {
-			state.visible.set(r.index, true);
-			select(r.index);
+	const texts = selectedTextLayers();
+	if (!texts.length) return;
+
+	// --- 1 枚だけ: 今までどおり名前と本文をその場で決める ---
+	if (texts.length === 1) {
+		const t = texts[0];
+		try {
+			const r = await app.post('/api/psd/duplicate', {
+				index: t.index,
+				name: $('#dupName').value.trim() || (t.name + ' copy'),
+				text: $('#dupText').value,
+			});
+			$('#dupDialog').hidden = true;
+			bodyEl().dataset.loaded = '';
+			applyDoc(r, { keepVisibility: true });
+			if (typeof r.index === 'number') {
+				state.visible.set(r.index, true);
+				select(r.index);
+			}
+			toast(tr('msg.duplicated'));
+		} catch (e) {
+			toast(serverMessage(e.message), true);
 		}
-		toast(tr('msg.duplicated'));
-	} catch (e) {
-		toast(serverMessage(e.message), true);
+		return;
 	}
+
+	// --- まとめて複製。本文はそのまま (訳を入れるのは複製したあと) ---
+	const prefix = $('#dupPrefix').value;
+	const suffix = $('#dupSuffix').value;
+	app.post('/api/app/settings', { dupPrefix: prefix, dupSuffix: suffix }).catch(() => {});
+	state.settings.dupPrefix = prefix;
+	state.settings.dupSuffix = suffix;
+
+	$('#dupDialog').hidden = true;
+	setMultiStatus(tr('multi.working'));
+
+	// index は複製のたびにずれる (挿入したぶん後ろが繰り下がる) ので、
+	// 元レイヤも作ったレイヤも lyid で追いかける。
+	const madeLyids = [];
+	for (const src of texts) {
+		const cur = state.texts.find(x => x.lyid === src.lyid) || src;
+		try {
+			const r = await app.post('/api/psd/duplicate', {
+				index: cur.index,
+				name: prefix + cur.name + suffix,
+			});
+			applyDoc(r, { keepVisibility: true });
+			if (typeof r.index === 'number') {
+				state.visible.set(r.index, true);
+				const made = textOf(r.index);
+				if (made) madeLyids.push(made.lyid);
+			}
+		} catch (e) { /* 続ける */ }
+	}
+
+	// 複製したものを選択状態にして、そのまま一括で書式を変えられるようにする
+	const madeNow = state.texts.filter(t => madeLyids.includes(t.lyid));
+	if (madeNow.length) {
+		state.multi = new Set(madeNow.map(t => t.index));
+		state.selected = madeNow[madeNow.length - 1].index;
+	}
+	renderAll();
+	scheduleRedraw();
+	setMultiStatus(tr('multi.duplicated', madeNow.length), 'ok');
+	toast(tr('multi.duplicated', madeNow.length));
 }
 
 /// テキストレイヤを移動する (文書座標での差分)
@@ -1319,8 +1582,9 @@ async function openFontDialog(target) {
 	state.fontTarget = target || 'base';
 	$('#fontDialog').hidden = false;
 	$('#fontManual').value = '';
-	$('#fontDlgTarget').textContent =
-		tr(state.fontTarget === 'base' ? 'dlg.fontForBase' : 'dlg.fontForMark');
+	$('#fontDlgTarget').textContent = tr(
+		state.fontTarget === 'multi' ? 'dlg.fontForMulti' :
+		state.fontTarget === 'base'  ? 'dlg.fontForBase'  : 'dlg.fontForMark');
 
 	// まず PSD が持っているフォントだけで一覧を出す。システムフォントの取得は
 	// 許可待ちで止まることがあり、それを待ってから描くと一覧が空のままになる。
@@ -1387,7 +1651,8 @@ function pickFont(name) {
 	if (!t) return;
 	if (!t.fonts.includes(n)) t.fonts.push(n);
 	$('#fontDialog').hidden = true;
-	if (state.fontTarget === 'base') setBaseStyle('font', n);
+	if (state.fontTarget === 'multi') applyStyleToSelection({ font: n });
+	else if (state.fontTarget === 'base') setBaseStyle('font', n);
 	else commitSpec({ font: n });
 }
 
@@ -1533,13 +1798,22 @@ function renderReport(r, error) {
 function openExportDialog() {
 	$('#expPath').value = state.csvPath || state.info.csvPath || '';
 	$('#expStatus').textContent = '';
+	// 選択中のレイヤだけ書き出す選択肢は、複数選んでいるときだけ意味がある
+	const texts = selectedTextLayers();
+	const many = texts.length > 1;
+	$('#expSelRow').hidden = !many;
+	$('#expSelOnly').checked = many && !!state.exportSel;
+	$('#expSelCount').textContent = tr('multi.expCount', texts.length);
+	state.exportSel = false;
 	$('#exportDialog').hidden = false;
 }
 
 async function exportCsvToFile() {
 	const path = $('#expPath').value.trim();
+	const only = ($('#expSelOnly').checked && !$('#expSelRow').hidden)
+		? selectedTextLayers().map(t => t.index) : undefined;
 	try {
-		const r = await app.post('/api/psd/export', { path });
+		const r = await app.post('/api/psd/export', only ? { path, indices: only } : { path });
 		state.csvPath = r.path;                       // 読み込みの既定にも使う
 		$('#exportDialog').hidden = true;
 		toast(tr('msg.csvWritten', r.path));
@@ -1957,6 +2231,24 @@ async function main() {
 	};
 	$('#boxW').addEventListener('change', commitBox);
 	$('#boxH').addEventListener('change', commitBox);
+
+	// --- 複数選択したときの一括操作 ---
+	$('#mFontBtn').addEventListener('click', () => openFontDialog('multi'));
+	$('#mSizeGo').addEventListener('click', () => {
+		const v = parseFloat($('#mSize').value);
+		if (v > 0) applyStyleToSelection({ size: v });
+	});
+	$('#mColorGo').addEventListener('click',
+		() => applyStyleToSelection({ color: $('#mColor').value.toUpperCase() }));
+	$('#mBold').addEventListener('click',   () => toggleSelectionFlag('bold'));
+	$('#mItalic').addEventListener('click', () => toggleSelectionFlag('italic'));
+	$('#mUnder').addEventListener('click',  () => toggleSelectionFlag('underline'));
+	document.querySelectorAll('.malign').forEach(b =>
+		b.addEventListener('click', () => applyAlignToSelection(Number(b.dataset.align))));
+	$('#mCopyStyle').addEventListener('click', copyStyleFromSelection);
+	$('#mPasteStyle').addEventListener('click', pasteStyleToSelection);
+	$('#mDup').addEventListener('click', openDupDialog);
+	$('#mExport').addEventListener('click', () => { state.exportSel = true; openExportDialog(); });
 
 	$('#fontAddBtn').addEventListener('click', () => openFontDialog('base'));
 	$('#fontFilter').addEventListener('input', renderSysFonts);

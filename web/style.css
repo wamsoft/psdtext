@@ -468,6 +468,24 @@ button.mini.on { background: var(--accent); border-color: var(--accent); color: 
 .align-group, .style-group { display: inline-flex; gap: 2px; }
 #styleHint { padding: 0 10px; margin: 2px 0 6px; flex: none; }
 
+/*--- 複数選択したときの一括操作 --------------------------------------*/
+#multiPane { display: flex; flex-direction: column; flex: 0 1 auto; overflow: auto; }
+.multi-list {
+	max-height: 22vh;
+	overflow: auto;
+	margin: 4px 10px;
+	padding: 4px 6px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	font-size: 12px;
+}
+.multi-row { display: flex; gap: 6px; padding: 1px 0; white-space: nowrap; }
+.multi-row.dim { color: var(--fg-dim); }
+.multi-kind { width: 12px; flex: none; text-align: center; color: var(--accent); }
+#multiStatus { padding: 0 10px 8px; }
+.tree-row.multi { background: var(--bg-sel); }
+.tree-row.multi.sel { outline: 1px solid var(--accent); outline-offset: -1px; }
+
 /*--- 書式パネル -------------------------------------------------------*/
 .fmt-panel { flex: none; }
 .fmt-title {

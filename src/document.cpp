@@ -741,11 +741,13 @@ bool Document::layerImage(int index, std::vector<uint8_t>& rgba, int& w, int& h,
 //---------------------------------------------------------------------------
 // CSV
 //---------------------------------------------------------------------------
-std::string Document::exportCsv() const
+std::string Document::exportCsv(const std::vector<int>& only) const
 {
 	csv::Table t;
 	t.push_back({ "lyid", "path", "text" });
 	for (const auto& r : texts_) {
+		if (!only.empty() &&
+		    std::find(only.begin(), only.end(), r.index) == only.end()) continue;
 		t.push_back({ std::to_string(r.lyid), r.path, r.tagged });
 	}
 	return csv::write(t, true);
@@ -764,7 +766,8 @@ std::string Document::defaultCsvPath() const
 	return base + "_texts.csv";
 }
 
-bool Document::exportCsvTo(const std::string& path, std::string& err) const
+bool Document::exportCsvTo(const std::string& path, std::string& err,
+                           const std::vector<int>& only) const
 {
 	if (!isOpen()) { err = "no document is open"; return false; }
 	std::string target = path.empty() ? defaultCsvPath() : path;
@@ -772,7 +775,7 @@ bool Document::exportCsvTo(const std::string& path, std::string& err) const
 
 	std::ofstream f(fs::u8path(target), std::ios::binary | std::ios::trunc);
 	if (!f) { err = "could not write " + target; return false; }
-	const std::string data = exportCsv();
+	const std::string data = exportCsv(only);
 	f.write(data.data(), (std::streamsize)data.size());
 	if (!f) { err = "could not write " + target; return false; }
 	appserve::logI("csv written: " + target);
