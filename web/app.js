@@ -498,9 +498,12 @@ function renderEditor() {
 		$('#boxW').value = '';
 		$('#boxH').value = '';
 	}
-	$('#placeHint').textContent = t.vertical
-		? '縦書き (仮描画は横書きで代用)'
-		: (t.hasBounds ? '' : '枠情報なし');
+	// 枠を持たないテキストレイヤ (ポイントテキスト) は珍しくない。
+	// 「情報が無い」ではなく「枠という概念が無い」ことを伝える。
+	const notes = [];
+	if (t.vertical) notes.push('縦書き (仮描画は横書きで代用)');
+	if (!t.hasBounds) notes.push('ポイントテキスト (流し込み枠なし)');
+	$('#placeHint').textContent = notes.join(' / ');
 
 	const curAlign = (t.paragraphJust && t.paragraphJust[0]) || 0;
 	document.querySelectorAll('.align').forEach(b => {
