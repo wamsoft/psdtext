@@ -79,6 +79,11 @@ std::string randomToken()
 ///
 /// あわせて、記録しておいた大きさ・位置を起動引数でも渡す。こちらはブラウザを
 /// 新しく起こすときだけ効く (すでに起動している Edge が窓を作る場合は無視)。
+///
+/// **コマンドラインを読んだ後** に呼ぶこと。--port / --token / --no-token が
+/// 指定されていればそちらが優先で、ここは指定が無かったときの既定値を埋める
+/// 役目になる。特に appserve は「token が空でなければ検証する」と解釈するので、
+/// 先に埋めてしまうと --no-token が効かなくなる (CI が 401 で落ちた)。
 void applyWindowBox(appserve::App& app)
 {
 	const int kPreferredPort = 18990;
@@ -87,7 +92,7 @@ void applyWindowBox(appserve::App& app)
 
 	appserve::Json s = psdtext::Settings::load();
 
-	if (app.options().token.empty()) {
+	if (app.options().useToken && app.options().token.empty()) {
 		std::string tok = s["browserToken"].asStr();
 		if (tok.size() < 16) {
 			tok = randomToken();
@@ -130,7 +135,6 @@ int main(int argc, char** argv)
 	app.options().appVersion = "0.1.1";
 	// PSD の保存には書き込みが要る。ファイル API の読み出しは既定で有効。
 	app.options().allowWrite = true;
-	applyWindowBox(app);
 
 	std::string openPath;
 	app.addOption({
@@ -139,6 +143,8 @@ int main(int argc, char** argv)
 	});
 
 	if (!app.parseArgs(argc, argv)) return app.exitCode();
+
+	applyWindowBox(app);
 
 	// --open が無ければ最初の位置引数を使う (psdtext foo.psd と書ける)
 	if (openPath.empty() && !app.options().args.empty())
