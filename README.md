@@ -303,7 +303,7 @@ pushing a tag makes GitHub Actions publish a release.
 ```bash
 cmake --build --preset windows-rel
 cpack --config build/windows/CPackConfig.cmake -C Release -B dist   # build locally
-git tag v0.2.0 && git push origin v0.2.0                            # publish
+git tag v0.2.1 && git push origin v0.2.1                            # publish
 ```
 
 The distributable is just `psdtext.exe` plus README and LICENSE. The UI is embedded

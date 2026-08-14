@@ -292,7 +292,7 @@ GitHub Actions が Release を自動生成する。
 ```bash
 cmake --build --preset windows-rel
 cpack --config build/windows/CPackConfig.cmake -C Release -B dist   # 手元で作る
-git tag v0.2.0 && git push origin v0.2.0                            # リリースする
+git tag v0.2.1 && git push origin v0.2.1                            # リリースする
 ```
 
 配布物は `psdtext.exe` + README + LICENSE の 3 つだけ。UI は exe に埋め込まれ、

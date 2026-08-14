@@ -12,6 +12,14 @@ On release, rename the "Unreleased" heading to the version number and start a ne
 
 ---
 
+## 0.2.1 — 2026-08-14
+
+- **Fixed: the multi-selection pane never went away.** Selecting a single layer
+  again, or opening another PSD, left the "N layers together" list and its
+  buttons on screen
+
+---
+
 ## 0.2.0 — 2026-08-14
 
 ### CSV
