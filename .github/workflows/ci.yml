@@ -57,6 +57,10 @@ jobs:
 
       - name: Smoke test
         shell: bash
+        env:
+          # Windows の Python は stdout を cp1252 で書こうとして、日本語や絵文字を
+          # print した時点で UnicodeEncodeError になる
+          PYTHONIOENCODING: utf-8
         run: |
           set -euo pipefail
           EXE="${{ steps.exe.outputs.path }}"
