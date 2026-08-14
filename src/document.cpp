@@ -3,6 +3,7 @@
 //---------------------------------------------------------------------------
 #include "document.h"
 #include "csv.h"
+#include "richtext.h"
 
 #include <psdfile.h>
 #include <psdparse.h>
@@ -220,13 +221,23 @@ void Document::rebuildIndex()
 		t.path          = r.path;
 		t.name          = r.name;
 		t.text          = stripTrailingParagraph(crToLf(u16ToUtf8(l.textData.text)));
-		t.original      = t.text;
 		t.justification = l.textData.justification;
 		t.left = r.left; t.top = r.top; t.right = r.right; t.bottom = r.bottom;
 		if (!l.textData.runs.empty()) {
 			t.font     = u16ToUtf8(l.textData.runs[0].font);
 			t.fontSize = l.textData.runs[0].fontSize;
 		}
+		for (const auto& p : l.textData.paragraphs) t.paragraphJust.push_back(p.justification);
+
+		// 書式をタグで畳んだ表現を作る。書式が一様なら素の本文と同じになる。
+		// toTagged は末尾の段落マークを剥がす前の長さで組まれた runs を使うので、
+		// 剥がしたぶんは末尾ランが吸収する (取りこぼしは関数側で補われる)。
+		t.tagged = toTagged(t.text, l.textData.runs, l.textData.paragraphs,
+		                    baseFromRuns(l.textData.runs));
+		t.styled = hasTags(t.tagged);
+		t.original = t.tagged;
+
+		psd_->getLayerFonts(r.index, t.fonts, nullptr);
 		texts_.push_back(std::move(t));
 	}
 }
@@ -297,8 +308,16 @@ Json textRowJson(const TextRow& t)
 	o.set("lyid",          Json(t.lyid));
 	o.set("path",          Json(t.path));
 	o.set("name",          Json(t.name));
-	o.set("text",          Json(t.text));
+	o.set("text",          Json(t.tagged));      // 編集対象はタグ付き表現
+	o.set("plain",         Json(t.text));        // タグを除いた本文 (検索/表示用)
 	o.set("original",      Json(t.original));
+	o.set("styled",        Json(t.styled));
+	Json fonts = Json::array();
+	for (const auto& f : t.fonts) fonts.push(Json(f));
+	o.set("fonts", std::move(fonts));
+	Json pj = Json::array();
+	for (int j : t.paragraphJust) pj.push(Json(j));
+	o.set("paragraphJust", std::move(pj));
 	o.set("font",          Json(t.font));
 	o.set("fontSize",      Json(t.fontSize));
 	o.set("justification", Json(t.justification));
@@ -325,27 +344,99 @@ appserve::Json Document::textAt(int index) const
 }
 
 //---------------------------------------------------------------------------
-bool Document::setText(int index, const std::string& utf8, std::string& err)
+bool Document::setText(int index, const std::string& utf8, std::string& err,
+                       std::string* warnOut)
 {
 	if (!isOpen()) { err = "no document is open"; return false; }
 	for (auto& t : texts_) {
 		if (t.index != index) continue;
-		if (t.text == utf8) return true;             // 変化なし
-		if (!psd_->setLayerTextUtf8(
-			index, ensureTrailingParagraph(lfToCr(utf8)).c_str(), &err)) return false;
-		t.text  = utf8;
-		t.dirty = (t.text != t.original);
+		if (t.tagged == utf8) return true;             // 変化なし
+
+		// タグを解析してラン構成へ戻す。base は現在の先頭ランの書式なので、
+		// タグの無い部分は元の見た目のまま保たれる。
+		const psd::LayerInfo& l = psd_->layerList[(size_t)index];
+		StyleSpec base = baseFromRuns(l.textData.runs);
+
+		std::string plain;
+		std::vector<psd::TextRunSpec> runs;
+		std::vector<psd::TextParagraphSpec> paras;
+		parseTagged(utf8, base, plain, runs, paras, warnOut);
+
+		// PSD 側は CR 区切り + 末尾に段落マーク。長さもそれに合わせる。
+		std::string cr = ensureTrailingParagraph(lfToCr(plain));
+		psd::u16str wide = psd::utf8ToU16(cr);
+
+		if (!psd_->setLayerRichText(index, wide, runs, paras, &err)) return false;
+
+		t.text   = plain;
+		t.tagged = utf8;
+		t.styled = hasTags(utf8);
+		t.dirty  = (t.tagged != t.original);
+		t.paragraphJust.clear();
+		for (const auto& p : psd_->layerList[(size_t)index].textData.paragraphs)
+			t.paragraphJust.push_back(p.justification);
 		return true;
 	}
 	err = "layer " + std::to_string(index) + " is not an editable text layer";
 	return false;
 }
 
+//---------------------------------------------------------------------------
+bool Document::setJustification(int index, int paraIndex, int just, std::string& err)
+{
+	if (!isOpen()) { err = "no document is open"; return false; }
+	for (auto& t : texts_) {
+		if (t.index != index) continue;
+		if (!psd_->setLayerJustification(index, paraIndex, just, &err)) return false;
+
+		const psd::LayerInfo& l = psd_->layerList[(size_t)index];
+		t.paragraphJust.clear();
+		for (const auto& p : l.textData.paragraphs) t.paragraphJust.push_back(p.justification);
+		t.justification = l.textData.justification;
+		// 行揃えはタグ表現にも出るので作り直す
+		t.tagged = toTagged(t.text, l.textData.runs, l.textData.paragraphs,
+		                    baseFromRuns(l.textData.runs));
+		t.styled = hasTags(t.tagged);
+		t.dirty  = (t.tagged != t.original);
+		return true;
+	}
+	err = "layer " + std::to_string(index) + " is not a text layer";
+	return false;
+}
+
+//---------------------------------------------------------------------------
+int Document::duplicateLayer(int index, const std::string& newName, std::string& err)
+{
+	if (!isOpen()) { err = "no document is open"; return -1; }
+	if (index < 0 || index >= (int)layers_.size()) { err = "layer index out of range"; return -1; }
+
+	int ni = psd_->duplicateLayer(index);
+	if (ni < 0) { err = "could not duplicate the layer"; return -1; }
+	if (!newName.empty() && !psd_->setLayerName(ni, newName.c_str()))
+		appserve::logW("duplicated the layer but could not rename it");
+
+	// 複製でインデックスがずれるので索引を作り直す。編集済みの本文は PSDFile
+	// 側にあるので失われないが、dirty 表示は作り直しになる。
+	std::vector<TextRow> before = texts_;
+	rebuildIndex();
+	for (auto& t : texts_) {
+		for (const auto& b : before) {
+			// 複製前後で lyid は変わらない (複製側は新規採番) ので lyid で対応付ける
+			if (b.lyid == 0 || b.lyid != t.lyid) continue;
+			t.original = b.original;
+			t.dirty    = (t.tagged != t.original);
+			break;
+		}
+	}
+	appserve::logI("duplicated layer " + std::to_string(index) + " -> " + std::to_string(ni));
+	return ni;
+}
+
 bool Document::revert(int index, std::string& err)
 {
 	for (auto& t : texts_) {
 		if (t.index != index) continue;
-		return setText(index, t.original, err);
+		return setText(index, t.original, err, nullptr);
 	}
 	err = "layer " + std::to_string(index) + " is not a text layer";
 	return false;
@@ -471,7 +562,7 @@ std::string Document::exportCsv() const
 	csv::Table t;
 	t.push_back({ "lyid", "path", "text" });
 	for (const auto& r : texts_) {
-		t.push_back({ std::to_string(r.lyid), r.path, r.text });
+		t.push_back({ std::to_string(r.lyid), r.path, r.tagged });
 	}
 	return csv::write(t, true);
 }
@@ -527,7 +618,7 @@ std::vector<ImportRow> Document::importCsv(const std::string& text, bool apply,
 
 		const TextRow* cur = nullptr;
 		for (const auto& t : texts_) if (t.index == ir.index) { cur = &t; break; }
-		if (cur && cur->text == ir.text) {
+		if (cur && cur->tagged == ir.text) {
 			ir.status = "same";
 			out.push_back(std::move(ir));
 			continue;

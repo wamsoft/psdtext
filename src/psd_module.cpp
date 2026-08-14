@@ -93,6 +93,8 @@ private:
 		if (op == "text"    && req.method == "POST") return opSetText(req);
 		if (op == "revert"  && req.method == "POST") return opRevert(req);
 		if (op == "name"    && req.method == "POST") return opSetName(req);
+		if (op == "align"   && req.method == "POST") return opSetAlign(req);
+		if (op == "duplicate" && req.method == "POST") return opDuplicate(req);
 		if (op == "save"    && req.method == "POST") return opSave(req);
 		if (op == "image"   && req.method == "GET")  return opImage(req);
 		if (op == "export"  && req.method == "GET")  return opExport(req);
@@ -151,11 +153,60 @@ private:
 		if (!j.isObj() || !j.has("index")) return Response::error(400, "index is required");
 		int index = (int)j["index"].asInt(-1);
 
+		std::string err, warn;
+		if (!doc_.setText(index, j["text"].asStr(), err, &warn))
+			return Response::error(400, err);
+		notifyChanged();
+		Json out = doc_.textAt(index);
+		// タグの書き損じは失敗にせず警告として返す (本文は失われない)
+		if (!warn.empty()) out.set("warning", Json(warn));
+		return Response::json(out);
+	}
+
+	//-----------------------------------------------------------------------
+	Response opSetAlign(const Request& req) {
+		Response deny = requireOpen();
+		if (deny.status != 200) return deny;
+
+		const Json& j = req.json();
+		int index = (int)j["index"].asInt(-1);
+		int para  = j.has("paragraph") ? (int)j["paragraph"].asInt(-1) : -1;
+		int just  = (int)j["align"].asInt(0);
+
 		std::string err;
-		if (!doc_.setText(index, j["text"].asStr(), err))
+		if (!doc_.setJustification(index, para, just, err))
 			return Response::error(400, err);
 		notifyChanged();
 		return Response::json(doc_.textAt(index));
+	}
+
+	//-----------------------------------------------------------------------
+	/// テキストレイヤの複製。新規追加もこれを使う (雛形になるレイヤを選んで
+	/// 複製し、本文を差し替える形)。ゼロから TySh を組むより互換性が確実。
+	Response opDuplicate(const Request& req) {
+		Response deny = requireOpen();
+		if (deny.status != 200) return deny;
+
+		const Json& j = req.json();
+		int index = (int)j["index"].asInt(-1);
+
+		std::string err;
+		int ni = doc_.duplicateLayer(index, j["name"].asStr(), err);
+		if (ni < 0) return Response::error(400, err);
+
+		// 続けて本文を差し替えられるようにする (新規追加の実体)
+		if (j.has("text")) {
+			std::string warn;
+			if (!doc_.setText(ni, j["text"].asStr(), err, &warn))
+				logW("duplicated the layer but could not set its text: " + err);
+		}
+		notifyChanged();
+
+		Json out = doc_.info();
+		out.set("index", Json(ni));
+		out.set("tree",  doc_.tree());
+		out.set("texts", doc_.texts());
+		return Response::json(out);
 	}
 
 	Response opRevert(const Request& req) {

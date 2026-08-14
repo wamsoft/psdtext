@@ -26,6 +26,7 @@ add_executable(psdtext
     src/document.cpp
     src/psd_module.cpp
     src/csv.cpp
+    src/richtext.cpp
 )
 
 target_include_directories(psdtext PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)

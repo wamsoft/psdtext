@@ -55,6 +55,42 @@ lyid,path,text
 表示する。内容を確認してから「反映する」を押すと文書へ取り込まれる
 (この時点ではまだメモリ上。ファイルへ書くのは「保存」)。
 
+### 書式付きテキスト (タグ表現)
+
+PSD のテキストレイヤは「ラン (連続する文字に同じ書式)」の並びで書式を持つが、
+CSV のセルや素の編集欄には構造を入れられない。そこで本文の中にタグを埋め込む
+形で 1 本の文字列に畳んでいる。
+
+```
+text test [color=#F6005D]テキスト
+[align=right][b]TEST[font=SourceHanSansJP-Normal][size=33.3333][color=#0017F6][/b]フォント[size=50]変更
+[align=center][font=HGPKyokashotai]別のフォント
+```
+
+**閉じタグは無い。** タグはその位置から先の状態を変え、次の指定まで効き続ける。
+PSD のランは入れ子ではなく平坦な並びなので、この形が構造にそのまま対応し、
+翻訳者が入れ子を壊す事故も起きない。
+
+| タグ | 効果 |
+|---|---|
+| `[font=名前]` | そこから先のフォント。PSD に無い名前は FontSet へ追記される |
+| `[size=48]` | 文字サイズ (px)。小数可 |
+| `[color=#FF0000]` | 文字色 |
+| `[b]` `[i]` `[u]` | 太字 / 斜体 / 下線を **on** |
+| `[/b]` `[/i]` `[/u]` | 同じく **off** |
+| `[/font]` `[/size]` `[/color]` | その属性を基準 (先頭ランの書式) へ戻す |
+| `[reset]` | 全属性を基準へ戻す |
+| `[align=left\|right\|center]` | 段落の行揃え。段落の先頭に置く |
+| `[[` | リテラルの `[` |
+
+- **書式が一様なテキストにはタグが 1 つも付かない**ので、普通の翻訳作業では
+  タグを意識しなくてよい
+- 基準は「先頭ランの書式」。そこから変わる箇所だけタグが出る
+- 未知のタグはそのままの文字として残る (壊れた入力で本文を失わない)
+- 生成された表現は**往復で完全に安定** (編集 → 保存 → 開き直しで同じ文字列)
+
+CSV の `text` 列にもこの形式が入るので、Excel 上で書式ごと一括編集できる。
+
 ---
 
 ## ビルド
@@ -94,6 +130,8 @@ cmake --preset windows -DPSDTEXT_APPSERVE_DIR=D:/test/appserve \
 | `POST /api/psd/text` | `{index, text}` で本文を差し替える |
 | `POST /api/psd/revert` | `{index}` を読み込み時の内容へ戻す |
 | `POST /api/psd/name` | `{index, name}` でレイヤ名を変更 |
+| `POST /api/psd/align` | `{index, paragraph?, align}` で行揃えを変更 (paragraph 省略で全段落) |
+| `POST /api/psd/duplicate` | `{index, name?, text?}` でレイヤを複製 (新規追加の実体) |
 | `POST /api/psd/save` | `{path?, backup?}` で保存 (path 省略で上書き) |
 | `GET  /api/psd/image?index=N` | レイヤの見た目を生 RGBA で返す (`X-Image-Width/Height`) |
 | `GET  /api/psd/export` | テキストを CSV で書き出す |
@@ -120,9 +158,8 @@ cmake --preset windows -DPSDTEXT_APPSERVE_DIR=D:/test/appserve \
 ## 制限
 
 - 対象は**既存のテキストレイヤの本文**。新規テキストレイヤの追加は行わない
-- 文字スタイル (フォント / サイズ / 色) は編集すると先頭ランに畳まれる
-  (psdparse の `editEngineDataText` の仕様。ラン単位のスタイル編集 API は
-  psdparse 側にあるので、必要になれば繋ぎ込む)
+- 新規テキストレイヤは既存テキストレイヤの複製がベース。テキストレイヤが
+  1 つも無い PSD には追加できない (ゼロから TySh を組む実装は未対応)
 - 合成プレビュー画像は編集後も古いまま。Photoshop で開き直すと再合成される
 - テキストの流し込み枠 (bounds) は変えないので、長くすると枠からはみ出る
 

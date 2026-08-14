@@ -38,12 +38,19 @@ struct TextRow {
 	std::string path;
 	std::string name;
 	std::string text;          ///< UTF-8。段落区切りは \n (PSD の \r から変換済み)
-	std::string original;      ///< 読み込み時の内容 (差分表示 / 復元用)
-	std::string font;
-	double      fontSize = 0;
+	std::string tagged;        ///< 書式をタグで埋め込んだ形 (編集/CSV はこちらが正)
+	std::string original;      ///< 読み込み時の tagged (差分表示 / 復元用)
+	std::string font;          ///< 先頭ランのフォント (一覧表示用)
+	double      fontSize = 0;  ///< 先頭ランのサイズ
 	int         justification = 0;
 	bool        dirty = false;
+	bool        styled = false;  ///< 複数の書式を持つ (タグが付いている)
 	int         left = 0, top = 0, right = 0, bottom = 0;
+
+	/// このレイヤの EngineData が持つフォント名 (UI の候補)
+	std::vector<std::string> fonts;
+	/// 段落ごとの行揃え (0=左 1=右 2=中央)
+	std::vector<int> paragraphJust;
 };
 
 //---------------------------------------------------------------------------
@@ -80,12 +87,19 @@ public:
 	/// 1 件だけ返す (index 指定)
 	appserve::Json textAt(int index) const;
 
-	/// 本文を差し替える (UTF-8、改行 \n)。成功で true。
-	bool setText(int index, const std::string& utf8, std::string& err);
+	/// 本文を差し替える。utf8 はタグ付き表現 (書式が一様ならタグ無しの素の本文)。
+	/// 改行は \n。警告があれば warnOut に入る。
+	bool setText(int index, const std::string& utf8, std::string& err,
+	             std::string* warnOut = nullptr);
 	/// レイヤ名を変更する
 	bool setName(int index, const std::string& utf8, std::string& err);
 	/// 読み込み時の内容へ戻す
 	bool revert(int index, std::string& err);
+	/// 段落の行揃えを変える (paraIndex < 0 で全段落)
+	bool setJustification(int index, int paraIndex, int just, std::string& err);
+
+	/// レイヤを複製する。新しいレイヤの index を返す (失敗で -1)。
+	int  duplicateLayer(int index, const std::string& newName, std::string& err);
 
 	/// outPath が空なら開いたファイルへ上書き。backup=true なら <name>.psd.bak へ退避。
 	bool save(const std::string& outPath, bool backup, std::string& err);
