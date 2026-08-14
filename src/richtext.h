@@ -84,4 +84,29 @@ std::string stripTags(const std::string& tagged);
 /// 本文にタグが含まれているか (UI が「書式付き」表示にするかの判定用)
 bool hasTags(const std::string& tagged);
 
+/// 本文の**途中**にタグがあるか。先頭のタグ (= 初期書式の指定) は数えない。
+/// CSV で「初期書式は列に分けられるが、途中の書式は分けられない」行を見分ける。
+bool hasInlineTags(const std::string& tagged);
+
+/// 先頭に置かれたタグまで適用した書式 (= 利用者から見た「初期書式」)
+StyleSpec headStyle(const std::string& tagged, const StyleSpec& base);
+
+/// 初期書式を先頭タグとして書き出す (base と同じ属性は出さない)
+std::string headTagsFor(const StyleSpec& style, const StyleSpec& base);
+
+/// 先頭のタグだけ差し替える (本文と途中の書式指定はそのまま)
+std::string replaceHeadTags(const std::string& tagged, const StyleSpec& style,
+                            const StyleSpec& base);
+
+/// 行揃えの名前 ("left" / "right" / "center" …)。CSV の列に使う。
+std::string alignName(int justification);
+/// その逆 (解釈できなければ false)
+bool alignValue(const std::string& name, int& out);
+
+/// "#RRGGBB" / "RRGGBBAA" を 0..1 の RGBA へ (解釈できなければ false)
+bool parseColorHex(const std::string& s, float out[4]);
+
+/// 素の本文をタグ表現へ入れる形にする ('[' は '[[' と書く決まり)
+std::string escapeTagText(const std::string& plain);
+
 } // namespace psdtext

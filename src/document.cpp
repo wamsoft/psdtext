@@ -741,14 +741,41 @@ bool Document::layerImage(int index, std::vector<uint8_t>& rgba, int& w, int& h,
 //---------------------------------------------------------------------------
 // CSV
 //---------------------------------------------------------------------------
+//---------------------------------------------------------------------------
+// CSV の形
+//
+//   lyid, path, font, size, color, align, text, tags
+//
+// 初期書式は列に分けて、text は**素の本文**にする。Excel 上でセルを掴んで
+// 一括コピーしたいのに、[align=center] のようなタグが本文と同じセルに混ざって
+// いると扱えないため。
+//
+// 本文の途中に書式指定がある行だけは列に分けきれないので、従来のタグ表現を
+// tags 列へそのまま入れておく (取り込み時はそちらを優先する)。
+// 大半のレイヤは「初期書式 + 素の本文」なので tags は空になる。
 std::string Document::exportCsv(const std::vector<int>& only) const
 {
 	csv::Table t;
-	t.push_back({ "lyid", "path", "text" });
+	t.push_back({ "lyid", "path", "font", "size", "color", "align", "text", "tags" });
 	for (const auto& r : texts_) {
 		if (!only.empty() &&
 		    std::find(only.begin(), only.end(), r.index) == only.end()) continue;
-		t.push_back({ std::to_string(r.lyid), r.path, r.tagged });
+
+		StyleSpec head = headStyle(r.tagged, r.base);
+		const bool inlineTags = hasInlineTags(r.tagged);
+		char size[32] = "";
+		if (head.hasSize) std::snprintf(size, sizeof(size), "%g", head.size);
+
+		t.push_back({
+			std::to_string(r.lyid),
+			r.path,
+			head.hasFont ? head.font : std::string(),
+			size,
+			head.colorHex(),
+			alignName(r.paragraphJust.empty() ? r.justification : r.paragraphJust[0]),
+			r.text,                                   // 素の本文 (タグ無し)
+			inlineTags ? r.tagged : std::string(),    // 途中に書式がある行だけ
+		});
 	}
 	return csv::write(t, true);
 }
@@ -807,16 +834,22 @@ std::vector<ImportRow> Document::importCsv(const std::string& text, bool apply,
 	if (table.empty()) { err = "the CSV is empty"; return out; }
 
 	// ヘッダから列位置を決める (順序が違っても、余分な列があっても読める)
-	int colLyid = -1, colPath = -1, colText = -1;
+	int colLyid = -1, colPath = -1, colText = -1, colTags = -1;
+	int colFont = -1, colSize = -1, colColor = -1, colAlign = -1;
 	{
 		const csv::Row& head = table[0];
 		for (size_t i = 0; i < head.size(); ++i) {
 			std::string h = head[i];
 			std::transform(h.begin(), h.end(), h.begin(),
 			               [](unsigned char c) { return (char)tolower(c); });
-			if (h == "lyid" || h == "id")            colLyid = (int)i;
-			else if (h == "path" || h == "layer")    colPath = (int)i;
-			else if (h == "text" || h == "本文")     colText = (int)i;
+			if (h == "lyid" || h == "id")             colLyid = (int)i;
+			else if (h == "path" || h == "layer")     colPath = (int)i;
+			else if (h == "text" || h == "本文")      colText = (int)i;
+			else if (h == "tags")                     colTags = (int)i;
+			else if (h == "font" || h == "フォント")  colFont = (int)i;
+			else if (h == "size" || h == "サイズ")    colSize = (int)i;
+			else if (h == "color" || h == "colour" || h == "色") colColor = (int)i;
+			else if (h == "align" || h == "行揃え")   colAlign = (int)i;
 		}
 	}
 	if (colText < 0) {
@@ -824,6 +857,10 @@ std::vector<ImportRow> Document::importCsv(const std::string& text, bool apply,
 		      (table[0].empty() ? std::string("(no header)") : table[0][0]) + " ...)";
 		return out;
 	}
+	// 初期書式を分けた新しい形か、text にタグを畳んだ古い形か。
+	// どちらでも読めるようにしておく (前に書き出した CSV が手元に残っている)。
+	const bool splitCols = (colTags >= 0 || colFont >= 0 || colSize >= 0 ||
+	                        colColor >= 0 || colAlign >= 0);
 
 	for (size_t r = 1; r < table.size(); ++r) {
 		const csv::Row& row = table[r];
@@ -849,7 +886,47 @@ std::vector<ImportRow> Document::importCsv(const std::string& text, bool apply,
 
 		const TextRow* cur = nullptr;
 		for (const auto& t : texts_) if (t.index == ir.index) { cur = &t; break; }
-		if (cur && cur->tagged == ir.text) {
+
+		// 列に分かれている形なら、ここでタグ表現へ組み直す。
+		// tags 列に中身があればそれが正 (途中に書式がある行)。
+		int wantAlign = -1;
+		if (splitCols && cur) {
+			// 列から「こうしたい初期書式」を組む (空欄は今のまま)
+			StyleSpec want = headStyle(cur->tagged, cur->base);
+			if (colFont >= 0 && !cell(colFont).empty()) {
+				want.hasFont = true; want.font = cell(colFont);
+			}
+			if (colSize >= 0 && !cell(colSize).empty()) {
+				want.hasSize = true; want.size = atof(cell(colSize).c_str());
+			}
+			if (colColor >= 0 && !cell(colColor).empty()) {
+				float rgba[4];
+				if (parseColorHex(cell(colColor), rgba)) {
+					want.hasColor = true;
+					for (int k = 0; k < 4; ++k) want.color[k] = rgba[k];
+				}
+			}
+
+			// 本文を触っていなければ、途中の書式指定は残したまま先頭だけ差し替える。
+			// 触っていれば位置が意味を失うので、初期書式 + 素の本文へ組み直す
+			// (その行は tags 列に元の形が残っているので、戻したければそれを使える)。
+			const std::string tags = cell(colTags);
+			const std::string cursor = tags.empty() ? cur->tagged : tags;
+			if (ir.text == cur->text) {
+				ir.text = replaceHeadTags(cursor, want, cur->base);
+			} else {
+				ir.text = headTagsFor(want, cur->base) + escapeTagText(ir.text);
+			}
+
+			if (colAlign >= 0 && !cell(colAlign).empty()) {
+				int a;
+				if (alignValue(cell(colAlign), a)) wantAlign = a;
+			}
+		}
+
+		if (cur && cur->tagged == ir.text &&
+		    (wantAlign < 0 || (!cur->paragraphJust.empty() &&
+		                       cur->paragraphJust[0] == wantAlign))) {
 			ir.status = "same";
 			out.push_back(std::move(ir));
 			continue;
@@ -864,6 +941,8 @@ std::vector<ImportRow> Document::importCsv(const std::string& text, bool apply,
 		std::string setErr;
 		if (setText(ir.index, ir.text, setErr)) {
 			ir.status = "changed";
+			// 行揃えは段落の指定なので、本文とは別に当てる
+			if (wantAlign >= 0) setJustification(ir.index, -1, wantAlign, setErr);
 		} else {
 			ir.status  = "error";
 			ir.message = setErr;

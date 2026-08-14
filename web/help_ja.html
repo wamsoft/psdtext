@@ -250,13 +250,21 @@
 		<b>CSV 書き出し</b>で次の形式のファイルが得られる
 		(UTF-8 BOM 付き / CRLF なので Excel でそのまま開ける)。
 	</p>
-	<pre>lyid,path,text
-2,"dialog/名前","こんにちは"
-4,"dialog/本文","1 行目
-2 行目"</pre>
+	<pre>lyid,path,font,size,color,align,text,tags
+2,"dialog/名前",NotoSansJP-Bold,48,#202020,left,"こんにちは",
+4,"dialog/本文",NotoSansJP-Regular,32,#202020,center,"1 行目
+2 行目",</pre>
 	<ul>
-		<li><code>text</code> 列のセル内改行がそのまま段落区切りになる</li>
-		<li><code>text</code> 列には<b>書式タグをそのまま書ける</b></li>
+		<li><b>初期書式は列に分かれている</b> (font / size / color / align)。
+			本文と同じセルにタグが混ざらないので、Excel 上で列ごと掴んで扱える</li>
+		<li><code>text</code> 列は<b>素の本文</b>。セル内改行がそのまま段落区切りになる</li>
+		<li><code>tags</code> 列は、<b>本文の途中に書式指定がある行だけ</b>埋まる
+			(タグを畳んだ従来の形)。読み込むときは、本文を書き換えていなければ
+			途中の書式もそのまま残り、書き換えた行は初期書式 + 素の本文になる</li>
+		<li>空欄の列は「今のまま」。<code>align</code> は
+			<code>left</code> / <code>right</code> / <code>center</code> のほか
+			「左」「右」「中央」でも書ける</li>
+		<li><b>昔の形式 (text にタグを畳んだ CSV) もそのまま読める</b></li>
 		<li>
 			照合は <code>lyid</code> (Photoshop の永続レイヤ ID) が主キー。
 			レイヤの並べ替えや改名をしても対応が壊れない。

@@ -120,13 +120,21 @@ PSD 内蔵のラスタも一緒に動くので、Photoshop で開き直すまで
 形式は次のとおり:
 
 ```csv
-lyid,path,text
-2,"dialog/名前","こんにちは"
-4,"dialog/本文","1 行目
-2 行目"
+lyid,path,font,size,color,align,text,tags
+2,"dialog/名前",NotoSansJP-Bold,48,#202020,left,"こんにちは",
+4,"dialog/本文",NotoSansJP-Regular,32,#202020,center,"1 行目
+2 行目",
 ```
 
-- `text` 列のセル内改行がそのまま PSD の段落区切りになる
+- **初期書式は列に分かれている** (font / size / color / align)。本文と同じセルに
+  タグが混ざらないので、Excel 上で列ごと掴んで一括で扱える
+- `text` 列は**素の本文**。セル内改行がそのまま PSD の段落区切りになる
+- `tags` 列は**本文の途中に書式指定がある行だけ**埋まる (従来のタグ表現)。
+  読み込むとき、本文を書き換えていない行は途中の書式もそのまま残り、
+  書き換えた行は「初期書式 + 素の本文」になる
+- 空欄の列は「今のまま」。`align` は `left` / `right` / `center` のほか
+  「左」「右」「中央」でも書ける
+- **昔の形式 (`text` にタグを畳んだ CSV) もそのまま読める**
 - 照合は **`lyid` (Photoshop の永続レイヤ ID) が主キー**。レイヤの並べ替えや
   改名をしても対応が壊れない。`lyid` が無い行は `path` 列で照合する
   (同名レイヤが複数あるときは曖昧なので未解決として報告する)
@@ -176,7 +184,8 @@ PSD のランは入れ子ではなく平坦な並びなので、この形が構�
 - 未知のタグはそのままの文字として残る (壊れた入力で本文を失わない)
 - 生成された表現は**往復で完全に安定** (編集 → 保存 → 開き直しで同じ文字列)
 
-CSV の `text` 列にもこの形式が入るので、Excel 上で書式ごと一括編集できる。
+CSV では初期書式が列に分かれ、この形式が入るのは `tags` 列 (本文の途中に書式が
+ある行だけ) になる。
 
 ---
 
@@ -223,8 +232,11 @@ cmake --preset windows -DPSDTEXT_APPSERVE_DIR=D:/test/appserve \
 | `POST /api/psd/place` | `{index, dx, dy}` で移動 / `{index, width, height}` で流し込み枠 |
 | `POST /api/psd/save` | `{path?, backup?}` で保存 (path 省略で上書き) |
 | `GET  /api/psd/image?index=N` | レイヤの見た目を生 RGBA で返す (`X-Image-Width/Height`) |
-| `GET  /api/psd/export` | テキストを CSV で書き出す |
-| `POST /api/psd/import` | CSV を取り込む。`?apply=0` で確認のみ |
+| `GET  /api/psd/export` | テキストを CSV でダウンロード |
+| `POST /api/psd/export` | `{path?, indices?}` で CSV をファイルへ書き出す (既定は PSD の隣) |
+| `POST /api/psd/import` | CSV を取り込む。生バイト / `{csv}` / `{path}` のどれでも可。`?apply=0` で確認のみ |
+| `GET  /api/app/settings` | 画面をまたいで残す設定 (前回のフォルダ等) |
+| `POST /api/app/settings` | 渡したキーだけ上書きする |
 
 ファイル選択用に appserve 標準の `/api/fs/*` も使える。
 

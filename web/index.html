@@ -15,6 +15,7 @@
 	<span id="dirtyBadge" class="badge" hidden></span>
 	<span class="spacer"></span>
 	<input type="search" id="filter" data-i18n-ph="app.filter.ph">
+	<button id="sheetBtn" data-i18n="app.sheet" data-i18n-title="app.sheet.title">Edit as a list</button>
 	<button id="exportBtn" data-i18n="app.csvExport" data-i18n-title="app.csvExport.title">Export CSV</button>
 	<button id="importBtn" data-i18n="app.csvImport" data-i18n-title="app.csvImport.title">Import CSV</button>
 	<button id="saveBtn" class="primary" data-i18n="app.save" data-i18n-title="app.save.title">Save</button>
@@ -324,6 +325,27 @@
 				<button id="saveGo" class="primary" data-i18n="dlg.saveGo">Save</button>
 			</div>
 			<p class="hint" data-i18n="dlg.saveHint"></p>
+		</div>
+	</div>
+</div>
+
+<!-- 一覧編集 (複数レイヤを表でまとめて書き換える) -->
+<div id="sheetDialog" class="modal" hidden>
+	<div class="modal-box wide">
+		<div class="modal-head">
+			<span data-i18n="sheet.title">Edit as a list</span>
+			<button class="icon close" data-close>×</button>
+		</div>
+		<div class="modal-body">
+			<p class="hint" data-i18n="sheet.hint"></p>
+			<div class="sheet-wrap">
+				<table id="sheetTable" class="sheet"></table>
+			</div>
+			<div class="row" style="margin-top:10px; align-items:center">
+				<button id="sheetApply" class="primary" data-i18n="sheet.apply">Apply changes</button>
+				<button id="sheetReload" data-i18n="sheet.reload">Reload</button>
+				<span id="sheetStatus" class="status"></span>
+			</div>
 		</div>
 	</div>
 </div>

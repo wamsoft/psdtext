@@ -264,13 +264,23 @@ of the range goes back to pink — not back to the base</pre>
 		<b>Export CSV</b> produces a file in this shape (UTF-8 with BOM and CRLF, so
 		Excel opens it directly):
 	</p>
-	<pre>lyid,path,text
-2,"dialog/name","Hello"
-4,"dialog/body","first line
-second line"</pre>
+	<pre>lyid,path,font,size,color,align,text,tags
+2,"dialog/name",NotoSansJP-Bold,48,#202020,left,"Hello",
+4,"dialog/body",NotoSansJP-Regular,32,#202020,center,"first line
+second line",</pre>
 	<ul>
-		<li>A newline inside the <code>text</code> cell becomes a paragraph break</li>
-		<li>The <code>text</code> column <b>may contain formatting tags</b></li>
+		<li><b>The initial formatting sits in its own columns</b> (font / size /
+			colour / align), so nothing is mixed into the body cell and a whole
+			column can be filled in at once in Excel</li>
+		<li>The <code>text</code> column is the <b>plain body</b>; a newline inside
+			the cell becomes a paragraph break</li>
+		<li>The <code>tags</code> column is filled in <b>only for rows that carry
+			formatting inside the body</b> (the folded form). On import, a row whose
+			body you did not touch keeps that formatting; a row you rewrote becomes
+			initial formatting + plain text</li>
+		<li>An empty cell means "leave as is". <code>align</code> takes
+			<code>left</code> / <code>right</code> / <code>center</code></li>
+		<li><b>The older shape (tags folded into <code>text</code>) still imports</b></li>
 		<li>
 			Layers are matched by <code>lyid</code> (Photoshop's persistent layer ID),
 			so reordering or renaming layers does not break the mapping. Rows without

@@ -101,6 +101,11 @@ const char* justName(int j)
 bool justValue(const std::string& name, int& out)
 {
 	std::string n = trimStr(name);
+	// CSV の列に日本語で書かれることがある (Excel 上で直に打つため)
+	if (n == "左" || n == "左揃え")     { out = 0; return true; }
+	if (n == "右" || n == "右揃え")     { out = 1; return true; }
+	if (n == "中央" || n == "中央揃え") { out = 2; return true; }
+	if (n == "両端揃え")                { out = 6; return true; }
 	for (char& c : n) c = (char)tolower((unsigned char)c);
 	if (n == "left")           { out = 0; return true; }
 	if (n == "right")          { out = 1; return true; }
@@ -541,6 +546,143 @@ bool hasTags(const std::string& tagged)
 		if (tagged.find(']', i + 1) != std::string::npos) return true;
 	}
 	return false;
+}
+
+//---------------------------------------------------------------------------
+namespace {
+
+/// i の位置にあるタグを読む。タグでなければ false。
+/// name は小文字 (別名は畳まない)、value は元の大小文字のまま。
+bool readTag(const std::string& s, size_t i, size_t& end,
+             std::string& name, std::string& value, bool& off)
+{
+	if (i >= s.size() || s[i] != '[') return false;
+	if (i + 1 < s.size() && s[i + 1] == '[') return false;      // リテラルの '['
+	size_t close = s.find(']', i + 1);
+	if (close == std::string::npos) return false;
+
+	std::string body = s.substr(i + 1, close - i - 1);
+	off = (!body.empty() && body[0] == '/');
+	std::string spec = off ? body.substr(1) : body;
+	size_t eq = spec.find('=');
+	name = trimStr(eq == std::string::npos ? spec : spec.substr(0, eq));
+	for (char& c : name) c = (char)tolower((unsigned char)c);
+	value = (eq == std::string::npos) ? std::string() : trimStr(spec.substr(eq + 1));
+	end = close + 1;
+
+	// 知らないタグは本文の文字 (parseTagged と同じ扱い)
+	if (name.empty()) return true;              // [] / [/] は [reset]
+	static const char* KNOWN[] = { "b", "bold", "i", "italic", "u", "underline",
+	                               "size", "font", "color", "reset", "align" };
+	for (const char* k : KNOWN) if (name == k) return true;
+	return false;
+}
+
+/// 先頭に連なっているタグの終わり (= 初期書式の指定が終わる位置)
+size_t headEnd(const std::string& tagged)
+{
+	size_t i = 0;
+	for (;;) {
+		size_t end; std::string n, v; bool off;
+		if (!readTag(tagged, i, end, n, v, off)) break;
+		i = end;
+	}
+	return i;
+}
+
+} // anonymous
+
+bool hasInlineTags(const std::string& tagged)
+{
+	for (size_t i = headEnd(tagged); i < tagged.size();) {
+		if (tagged[i] == '[' && i + 1 < tagged.size() && tagged[i + 1] == '[') { i += 2; continue; }
+		size_t end; std::string n, v; bool off;
+		if (readTag(tagged, i, end, n, v, off)) return true;
+		++i;
+	}
+	return false;
+}
+
+StyleSpec headStyle(const std::string& tagged, const StyleSpec& base)
+{
+	StyleSpec cur = base;
+	size_t i = 0;
+	for (;;) {
+		size_t end; std::string name, value; bool off;
+		if (!readTag(tagged, i, end, name, value, off)) break;
+		i = end;
+
+		if (name == "b" || name == "bold")           { cur.hasBold = true; cur.bold = !off; }
+		else if (name == "i" || name == "italic")    { cur.hasItalic = true; cur.italic = !off; }
+		else if (name == "u" || name == "underline") { cur.hasUnderline = true; cur.underline = !off; }
+		else if (name == "size") {
+			if (off || value.empty()) { cur.hasSize = base.hasSize; cur.size = base.size; }
+			else { cur.hasSize = true; cur.size = atof(value.c_str()); }
+		} else if (name == "font") {
+			if (off || value.empty()) { cur.hasFont = base.hasFont; cur.font = base.font; }
+			else { cur.hasFont = true; cur.font = value; }
+		} else if (name == "color") {
+			if (off || value.empty()) {
+				cur.hasColor = base.hasColor;
+				for (int k = 0; k < 4; ++k) cur.color[k] = base.color[k];
+			} else {
+				float rgba[4];
+				if (hexToColor(value, rgba)) {
+					cur.hasColor = true;
+					for (int k = 0; k < 4; ++k) cur.color[k] = rgba[k];
+				}
+			}
+		} else if (name == "reset" || name.empty()) {
+			cur = base;
+		}
+		// align は段落の指定なので書式には効かない (別の列で扱う)
+	}
+	return cur;
+}
+
+std::string headTagsFor(const StyleSpec& style, const StyleSpec& base)
+{
+	std::string o;
+	emitStyleDelta(o, style, base);
+	return o;
+}
+
+std::string replaceHeadTags(const std::string& tagged, const StyleSpec& style,
+                            const StyleSpec& base)
+{
+	// 先頭タグの中の [align=...] は段落の指定なので残す (書式ではない)
+	std::string keep;
+	size_t i = 0;
+	for (;;) {
+		size_t end; std::string name, value; bool off;
+		if (!readTag(tagged, i, end, name, value, off)) break;
+		if (name == "align") keep += tagged.substr(i, end - i);
+		i = end;
+	}
+	return keep + headTagsFor(style, base) + tagged.substr(i);
+}
+
+//---------------------------------------------------------------------------
+std::string alignName(int justification)
+{
+	return justName(justification);
+}
+
+bool alignValue(const std::string& name, int& out)
+{
+	return justValue(name, out);
+}
+
+bool parseColorHex(const std::string& s, float out[4])
+{
+	return hexToColor(trimStr(s), out);
+}
+
+std::string escapeTagText(const std::string& plain)
+{
+	std::string o;
+	appendEscaped(o, plain);
+	return o;
 }
 
 } // namespace psdtext

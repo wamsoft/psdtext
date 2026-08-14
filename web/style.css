@@ -468,6 +468,62 @@ button.mini.on { background: var(--accent); border-color: var(--accent); color: 
 .align-group, .style-group { display: inline-flex; gap: 2px; }
 #styleHint { padding: 0 10px; margin: 2px 0 6px; flex: none; }
 
+/*--- 一覧編集 ---------------------------------------------------------*/
+.sheet-wrap {
+	max-height: 62vh;
+	overflow: auto;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+}
+/* 本文の列を一番広く取る (ここを打ち替えるのが仕事なので) */
+#sheetDialog .modal-box { width: min(1400px, 96vw); }
+table.sheet { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+table.sheet .c-name  { width: 20%; }
+table.sheet .c-text  { width: 38%; }
+table.sheet .c-font  { width: 18%; }
+table.sheet .c-size  { width: 7%; }
+table.sheet .c-color { width: 9%; }
+table.sheet .c-align { width: 8%; }
+table.sheet th {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	padding: 5px 6px;
+	text-align: left;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--fg-dim);
+	background: var(--bg-pane);
+	border-bottom: 1px solid var(--border);
+	white-space: nowrap;
+}
+table.sheet td {
+	padding: 2px 4px;
+	border-bottom: 1px solid var(--border);
+	vertical-align: top;
+}
+table.sheet tr:last-child td { border-bottom: none; }
+table.sheet td.edited { background: rgba(108, 182, 255, .12); }
+table.sheet input, table.sheet textarea, table.sheet select {
+	width: 100%;
+	padding: 2px 4px;
+	font: inherit;
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 3px;
+}
+table.sheet input:focus, table.sheet textarea:focus, table.sheet select:focus {
+	background: var(--bg);
+	border-color: var(--accent);
+	outline: none;
+}
+table.sheet textarea { resize: vertical; white-space: pre-wrap; line-height: 1.5; }
+.c-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-dim); }
+.c-color { white-space: nowrap; }
+.c-color input[type="text"] { width: calc(100% - 30px); display: inline-block; }
+.c-color input.swatch { width: 24px; height: 20px; display: inline-block; vertical-align: middle; padding: 0; }
+.sheet-warn { color: var(--warn); margin-right: 4px; cursor: help; }
+
 /*--- 複数選択したときの一括操作 --------------------------------------*/
 #multiPane { display: flex; flex-direction: column; flex: 0 1 auto; overflow: auto; }
 .multi-list {

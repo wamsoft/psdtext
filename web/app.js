@@ -52,6 +52,7 @@ const state = {
 	copiedStyle: null,    // 「書式をコピー」で控えた初期書式
 	multiStatus: null,    // 一括操作の結果表示
 	exportSel: false,     // 書き出しダイアログを「選択ぶんだけ」で開く
+	sheet: null,          // 一覧編集の行データ {rows, orig}
 	headTag: '',          // 本文の先頭にある基準への指定 (編集欄には出さない)
 	composing: false,     // IME 変換中
 };
@@ -1726,6 +1727,279 @@ async function openPsd(path) {
 }
 
 //---------------------------------------------------------------------------
+// 一覧編集
+//
+// 選んだレイヤ (選んでいなければ全テキストレイヤ) を表にして、本文と初期書式を
+// まとめて書き換える。CSV を経由せずに同じことをするための画面で、Excel から
+// そのまま貼り付けられる (タブ区切りを配る)。
+//
+// 本文を変えていない行は、途中に置いた書式マークをそのまま残す。本文を変えた
+// 行はマークの位置が意味を失うので落とす — その行には ⚠ を出して先に知らせる。
+//---------------------------------------------------------------------------
+const SHEET_COLS = ['name', 'text', 'font', 'size', 'color', 'align'];
+
+function openSheet() {
+	if (!state.info.open) { toast(tr('msg.needText'), true); return; }
+	loadSheet();
+	$('#sheetDialog').hidden = false;
+}
+
+/// 表の元データを作り直す (画面の値は捨てる)
+function loadSheet() {
+	const picked = selectedTextLayers();
+	const rows = (picked.length > 1 ? picked : state.texts).map(t => {
+		const st = tg.styleAtHead(t.text, baseOf(t));
+		const marks = tg.parseMarks(t.text).filter(m => m.start > 0);
+		return {
+			index: t.index,
+			lyid: t.lyid,
+			name: t.name,
+			text: tg.stripToPlain(t.text),
+			font: st.font, size: st.size, color: tg.normColor(st.color),
+			align: (t.paragraphJust && t.paragraphJust[0]) || 0,
+			marks: marks.length,
+		};
+	});
+	state.sheet = { rows, orig: rows.map(r => Object.assign({}, r)) };
+	renderSheet();
+	setSheetStatus('');
+}
+
+function setSheetStatus(msg, cls) {
+	const el = $('#sheetStatus');
+	el.textContent = msg || '';
+	el.className = 'status' + (cls ? ' ' + cls : '');
+}
+
+function renderSheet() {
+	const table = $('#sheetTable');
+	table.textContent = '';
+	const rows = state.sheet.rows;
+
+	const head = document.createElement('tr');
+	for (const key of SHEET_COLS) {
+		const th = document.createElement('th');
+		th.textContent = tr('sheet.col.' + key);
+		th.className = 'c-' + key;
+		head.appendChild(th);
+	}
+	table.appendChild(head);
+
+	rows.forEach((row, i) => {
+		const orig = state.sheet.orig[i];
+		const line = document.createElement('tr');
+		line.dataset.row = String(i);
+
+		// レイヤ名 (読み取り専用。書式マークを持つ行には印を出す)
+		const nameCell = document.createElement('td');
+		nameCell.className = 'c-name';
+		if (row.marks) {
+			const w = document.createElement('span');
+			w.className = 'sheet-warn';
+			w.textContent = '⚠';
+			w.title = tr('sheet.marksWarn', row.marks);
+			nameCell.appendChild(w);
+		}
+		nameCell.appendChild(document.createTextNode(row.name));
+		nameCell.title = row.name;
+		line.appendChild(nameCell);
+
+		line.appendChild(sheetCell(i, 'text', row.text, orig.text));
+		line.appendChild(sheetCell(i, 'font', row.font, orig.font));
+		line.appendChild(sheetCell(i, 'size', row.size, orig.size));
+		line.appendChild(sheetCell(i, 'color', row.color, orig.color));
+		line.appendChild(sheetAlignCell(i, row.align, orig.align));
+		table.appendChild(line);
+	});
+
+	const changed = changedSheetRows().length;
+	$('#sheetApply').disabled = !changed;
+	$('#sheetApply').textContent = changed ? tr('sheet.applyN', changed) : tr('sheet.apply');
+}
+
+/// 文字を入れるセル。値が元と違えば色を付ける。
+function sheetCell(i, key, value, orig) {
+	const td = document.createElement('td');
+	td.className = 'c-' + key + (String(value) !== String(orig) ? ' edited' : '');
+	const el = document.createElement(key === 'text' ? 'textarea' : 'input');
+	if (key === 'size') { el.type = 'number'; el.min = '1'; el.step = '0.5'; }
+	else if (key === 'color') { el.type = 'text'; el.spellcheck = false; }
+	else if (key !== 'text') { el.type = 'text'; el.spellcheck = false; }
+	el.value = (key === 'size' && value) ? (Math.round(value * 10) / 10) : (value ?? '');
+	if (key === 'text') { el.rows = Math.min(4, String(value || '').split('\n').length); }
+	el.dataset.row = String(i);
+	el.dataset.key = key;
+	el.addEventListener('input', onSheetInput);
+	el.addEventListener('paste', onSheetPaste);
+	td.appendChild(el);
+	if (key === 'color') {
+		const sw = document.createElement('input');
+		sw.type = 'color';
+		sw.className = 'swatch';
+		sw.value = tg.normColor(value).toLowerCase();
+		sw.addEventListener('change', () => {
+			state.sheet.rows[i].color = sw.value.toUpperCase();
+			renderSheet();
+		});
+		td.appendChild(sw);
+	}
+	return td;
+}
+
+function sheetAlignCell(i, value, orig) {
+	const td = document.createElement('td');
+	td.className = 'c-align' + (value !== orig ? ' edited' : '');
+	const sel = document.createElement('select');
+	for (const a of [0, 2, 1]) {
+		const o = document.createElement('option');
+		o.value = String(a);
+		o.textContent = tr('fmt.align.' + a);
+		sel.appendChild(o);
+	}
+	if (![0, 1, 2].includes(value)) {
+		const o = document.createElement('option');
+		o.value = String(value);
+		o.textContent = tr('fmt.align.' + value);
+		sel.appendChild(o);
+	}
+	sel.value = String(value);
+	sel.addEventListener('change', () => {
+		state.sheet.rows[i].align = Number(sel.value);
+		renderSheet();
+	});
+	td.appendChild(sel);
+	return td;
+}
+
+function onSheetInput(e) {
+	const i = Number(e.target.dataset.row);
+	const key = e.target.dataset.key;
+	const row = state.sheet.rows[i];
+	row[key] = (key === 'size') ? parseFloat(e.target.value) || 0 : e.target.value;
+	// 入力のたびに作り直すとカーソルが飛ぶので、印と反映ボタンだけ更新する
+	e.target.parentNode.classList.toggle('edited',
+		String(row[key]) !== String(state.sheet.orig[i][key]));
+	const changed = changedSheetRows().length;
+	$('#sheetApply').disabled = !changed;
+	$('#sheetApply').textContent = changed ? tr('sheet.applyN', changed) : tr('sheet.apply');
+}
+
+/// Excel からの貼り付け。タブ区切り / 改行区切りなら、そのセルを起点に配る。
+function onSheetPaste(e) {
+	const text = e.clipboardData && e.clipboardData.getData('text/plain');
+	if (!text || !/[\t\n]/.test(text.trim())) return;   // 1 セルぶんは通常の貼り付け
+	e.preventDefault();
+
+	const startRow = Number(e.target.dataset.row);
+	const startCol = SHEET_COLS.indexOf(e.target.dataset.key);
+	const lines = text.replace(/\r\n?/g, '\n').replace(/\n$/, '').split('\n');
+	let n = 0;
+	lines.forEach((line, dy) => {
+		const row = state.sheet.rows[startRow + dy];
+		if (!row) return;
+		line.split('\t').forEach((cell, dx) => {
+			const key = SHEET_COLS[startCol + dx];
+			if (!key || key === 'name') return;          // 名前の列は書き換えない
+			if (key === 'size') row.size = parseFloat(cell) || row.size;
+			else if (key === 'align') row.align = alignFromText(cell, row.align);
+			else if (key === 'color') row.color = tg.normColor(cell);
+			else row[key] = cell;
+			n++;
+		});
+	});
+	renderSheet();
+	setSheetStatus(tr('sheet.pasted', n));
+}
+
+function alignFromText(s, def) {
+	const v = tg.alignValue(String(s).trim());
+	if (v !== null) return v;
+	const ja = { '左': 0, '右': 1, '中央': 2, '左揃え': 0, '右揃え': 1, '中央揃え': 2 };
+	return ja[String(s).trim()] ?? def;
+}
+
+function changedSheetRows() {
+	if (!state.sheet) return [];
+	return state.sheet.rows.filter((r, i) => {
+		const o = state.sheet.orig[i];
+		return SHEET_COLS.some(k => k !== 'name' && String(r[k]) !== String(o[k]));
+	});
+}
+
+//---------------------------------------------------------------------------
+/// 表の変更を文書へ流す。
+async function applySheet() {
+	const rows = state.sheet.rows;
+	let done = 0, lostMarks = 0, failed = 0;
+	setSheetStatus(tr('multi.working'));
+
+	for (let i = 0; i < rows.length; i++) {
+		const row = rows[i], orig = state.sheet.orig[i];
+		const t = state.texts.find(x => x.lyid === row.lyid) || textOf(row.index);
+		if (!t) { failed++; continue; }
+
+		const textChanged = row.text !== orig.text;
+		const styleChanged = ['font', 'size', 'color'].some(k =>
+			!tg.sameValue(k, row[k], orig[k]));
+		const alignChanged = row.align !== orig.align;
+		if (!textChanged && !styleChanged && !alignChanged) continue;
+
+		try {
+			if (textChanged || styleChanged) {
+				const b = tg.baseStyle(baseOf(t));
+				const head = tg.headMark(t.text);
+				// 先頭マーク (= 初期書式) は残したまま、指定を上書きする
+				const specs = Object.assign({}, head ? head.specs : {});
+				for (const k of ['font', 'size', 'color']) {
+					if (tg.sameValue(k, row[k], b[k])) delete specs[k];
+					else specs[k] = row[k];
+				}
+				let next;
+				if (textChanged) {
+					// 本文が変わると途中のマークは位置を失うので落とす
+					if (row.marks) lostMarks++;
+					next = tg.formatMark(specs) + tg.escapeText(row.text);
+				} else {
+					const r = head ? tg.editMark(t.text, head, diffSpecs(head.specs, specs))
+					               : tg.editAt(t.text, 0, specs);
+					next = r.text;
+				}
+				if (next !== t.text) {
+					const res = await app.post('/api/psd/text', { index: t.index, text: next });
+					Object.assign(textOf(t.index) || t, res);
+				}
+			}
+			if (alignChanged) {
+				const res = await app.post('/api/psd/align',
+				                           { index: t.index, align: row.align });
+				Object.assign(textOf(t.index) || t, res);
+			}
+			done++;
+		} catch (e) { failed++; }
+	}
+
+	state.info.dirty = state.texts.filter(x => x.dirty).length;
+	bodyEl().dataset.loaded = '';
+	renderAll();
+	scheduleRedraw();
+	loadSheet();          // 反映後の姿を読み直す (元の値も更新される)
+	setSheetStatus(
+		failed ? tr('sheet.doneFailed', done, failed)
+		       : (lostMarks ? tr('sheet.doneLost', done, lostMarks) : tr('sheet.done', done)),
+		failed ? 'error' : 'ok');
+}
+
+/// 先頭マークを目的の形にするための差分 (消す指定は undefined)
+function diffSpecs(cur, want) {
+	const out = {};
+	for (const k of new Set([...Object.keys(cur), ...Object.keys(want)])) {
+		if (!(k in want)) out[k] = undefined;
+		else if (cur[k] !== want[k]) out[k] = want[k];
+	}
+	return out;
+}
+
+//---------------------------------------------------------------------------
 // CSV
 //---------------------------------------------------------------------------
 function renderReport(r, error) {
@@ -2050,6 +2324,9 @@ async function main() {
 	});
 	$('#openPath').addEventListener('keydown', e => { if (e.key === 'Enter') $('#openGo').click(); });
 
+	$('#sheetBtn').addEventListener('click', openSheet);
+	$('#sheetApply').addEventListener('click', applySheet);
+	$('#sheetReload').addEventListener('click', () => { loadSheet(); setSheetStatus(tr('sheet.reloaded')); });
 	$('#exportBtn').addEventListener('click', openExportDialog);
 	$('#expGo').addEventListener('click', exportCsvToFile);
 	$('#expDownload').addEventListener('click', () => {

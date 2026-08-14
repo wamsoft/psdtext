@@ -153,8 +153,8 @@ translator to accidentally break.
 - The generated form is **stable across round trips** — edit, save, reopen and you
   get the same string back
 
-The CSV `text` column uses the same format, so formatting can be edited in bulk
-from Excel.
+In CSV the initial formatting sits in its own columns, and this notation only
+shows up in the `tags` column — for rows that carry formatting inside the body.
 
 ### Bulk editing with CSV
 
@@ -168,13 +168,22 @@ encoding it read. "Apply" needs at least one differing row, and tells you why wh
 there is none. The format:
 
 ```csv
-lyid,path,text
-2,"dialog/name","Hello"
-4,"dialog/body","first line
-second line"
+lyid,path,font,size,color,align,text,tags
+2,"dialog/name",NotoSansJP-Bold,48,#202020,left,"Hello",
+4,"dialog/body",NotoSansJP-Regular,32,#202020,center,"first line
+second line",
 ```
 
-- A newline inside the `text` cell becomes a paragraph break
+- **The initial formatting has its own columns** (font / size / colour / align),
+  so nothing is mixed into the body cell and a whole column can be filled in at
+  once in a spreadsheet
+- The `text` column is the **plain body**; a newline inside the cell becomes a
+  paragraph break
+- The `tags` column is filled in **only for rows that carry formatting inside the
+  body**. On import, a row whose body you did not touch keeps that formatting; a
+  row you rewrote becomes initial formatting + plain text
+- An empty cell means "leave as is"
+- **The older shape (tags folded into `text`) still imports**
 - Layers are matched by **`lyid` (Photoshop's persistent layer ID)**, so
   reordering or renaming layers does not break the mapping. Rows without an
   `lyid` fall back to the `path` column (reported as unresolved when the name is
@@ -233,8 +242,11 @@ UI through the URL).
 | `POST /api/psd/place` | `{index, dx, dy}` to move / `{index, width, height}` for the text box |
 | `POST /api/psd/save` | `{path?, backup?}` saves (overwrites when path is omitted) |
 | `GET  /api/psd/image?index=N` | The layer as raw RGBA (`X-Image-Width/Height`) |
-| `GET  /api/psd/export` | Export the text as CSV |
-| `POST /api/psd/import` | Import a CSV. `?apply=0` checks only |
+| `GET  /api/psd/export` | Download the text as CSV |
+| `POST /api/psd/export` | `{path?, indices?}` writes the CSV to a file (next to the PSD by default) |
+| `POST /api/psd/import` | Import a CSV — raw bytes, `{csv}` or `{path}`. `?apply=0` checks only |
+| `GET  /api/app/settings` | Settings that outlive the window (last folder and so on) |
+| `POST /api/app/settings` | Merge in the given keys |
 
 appserve's standard `/api/fs/*` routes are available as well, for picking files.
 
