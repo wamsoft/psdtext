@@ -10,6 +10,10 @@ On release, rename the "Unreleased" heading to the version number and start a ne
 
 ## Unreleased
 
+---
+
+## 0.3.1 — 2026-08-19
+
 ### Fixed
 
 - **Edits never reached Photoshop.** Opening a saved PSD in Photoshop showed the
