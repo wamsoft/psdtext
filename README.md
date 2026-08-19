@@ -53,11 +53,22 @@ default and can be switched from the toolbar.
 
 ### Redrawn text
 
-The text raster inside a PSD is not updated until Photoshop reopens the file, so
+The rendered picture of a PSD's text can only be produced by Photoshop, so
 **edited text layers are redrawn on the canvas** instead (toggle "Redraw text").
 Typesetting — kerning, line-breaking rules, vertical text, transforms — is not
 reproduced, so treat it as a check of content and position. Only fonts installed
 on this PC can be used; the edit pane says so when one is missing.
+
+### After opening it in Photoshop
+
+Open a saved PSD in Photoshop and **the text is the edited text, but the picture
+on screen is still the old one**: Photoshop does not redraw text just because it
+opened the file.
+
+Run the bundled `tools/update-text-layers.jsx` from File > Scripts > Browse...
+and Photoshop redraws every text layer itself — typesetting, formatting and
+alignment all come out right — then save. Touching a layer with the type tool
+does the same thing for that one layer.
 
 ## Using it
 
@@ -113,7 +124,7 @@ rewriting the body makes it, in effect, "add a new text layer".
 Text layer **position and text box** can be changed from the number fields on the
 right, by dragging on the preview, or with the arrow keys (Shift for 10px). Moving
 a layer moves the raster stored in the PSD along with it, so nothing looks
-displaced before Photoshop reopens the file.
+displaced before Photoshop redraws it.
 
 **Renaming a layer**: double-click the name in the tree, or select it and press
 `F2` (or the "Rename" button). Enter commits, Escape cancels. Works on any layer.

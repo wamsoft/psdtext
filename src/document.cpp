@@ -2,6 +2,8 @@
 // Document 実装
 //---------------------------------------------------------------------------
 #include "document.h"
+
+#include <cmath>
 #include "csv.h"
 #include "richtext.h"
 
@@ -101,6 +103,51 @@ void syncParsedRunStyles(psd::TextLayerData& td,
 		if (e.hasItalic)    r.italic    = e.italic;
 		if (e.hasUnderline) r.underline = e.underline;
 	}
+}
+
+/// 「この編集で書式は変わっていない (変わったのは本文だけ)」か。
+///
+/// psdparse へは書式を**絶対値**で渡している (指定なし = 元のまま、をやらない)
+/// ので、指定の有無からは本文だけの編集かどうかを判別できない。そこで、編集前の
+/// タグ表現と編集後のタグ表現を**同じ経路で**ラン構成へ落として突き合わせる。
+/// 長さは当然変わるので、比べるのは書式と区切りの数だけ。
+///
+/// これが true のときだけ psdparse は Txt2 (文書ぜんたいの Text Engine Data)
+/// へ追随する。false なら Txt2 は捨てられ、Photoshop はレイヤ毎の TySh を読む。
+/// どちらでも Photoshop から見た結果は正しく、違うのは「Photoshop 自身が書く形
+/// にどれだけ近いまま残すか」だけ。
+bool sameFormatting(const std::vector<psd::TextRunSpec>& oldRuns,
+                    const std::vector<psd::TextParagraphSpec>& oldParas,
+                    const std::vector<psd::TextRunSpec>& newRuns,
+                    const std::vector<psd::TextParagraphSpec>& newParas)
+{
+	// 区切りの数が変われば書式の構造が変わっている。
+	if (oldRuns.size()  != newRuns.size())  return false;
+	if (oldParas.size() != newParas.size()) return false;
+
+	auto sameF = [](double a, double b) { return std::fabs(a - b) < 1e-6; };
+
+	for (size_t i = 0; i < newRuns.size(); ++i) {
+		const psd::RunStyleEdit& a = oldRuns[i].style;
+		const psd::RunStyleEdit& b = newRuns[i].style;
+		if (a.hasFont      != b.hasFont      || (a.hasFont      && a.font      != b.font))      return false;
+		if (a.hasSize      != b.hasSize      || (a.hasSize      && !sameF(a.size, b.size)))     return false;
+		if (a.hasTracking  != b.hasTracking  || (a.hasTracking  && a.tracking  != b.tracking))  return false;
+		if (a.hasKerning   != b.hasKerning   || (a.hasKerning   && a.kerning   != b.kerning))   return false;
+		if (a.hasBold      != b.hasBold      || (a.hasBold      && a.bold      != b.bold))      return false;
+		if (a.hasItalic    != b.hasItalic    || (a.hasItalic    && a.italic    != b.italic))    return false;
+		if (a.hasUnderline != b.hasUnderline || (a.hasUnderline && a.underline != b.underline)) return false;
+		if (a.hasColor != b.hasColor) return false;
+		if (a.hasColor)
+			for (int k = 0; k < 4; ++k) if (!sameF(a.color[k], b.color[k])) return false;
+	}
+	for (size_t i = 0; i < newParas.size(); ++i) {
+		const psd::TextParagraphSpec& a = oldParas[i];
+		const psd::TextParagraphSpec& b = newParas[i];
+		if (a.hasJustification != b.hasJustification) return false;
+		if (a.hasJustification && a.justification != b.justification) return false;
+	}
+	return true;
 }
 
 /// t.base (タグ解釈の原点 = 読み込み時の先頭ランの書式) を JSON へ出せる形に
@@ -475,7 +522,14 @@ bool Document::setText(int index, const std::string& utf8, std::string& err,
 		std::string cr = ensureTrailingParagraph(lfToCr(plain));
 		psd::u16str wide = psd::utf8ToU16(cr);
 
-		if (!psd_->setLayerRichText(index, wide, runs, paras, &err)) return false;
+		// 編集前のタグ表現も同じ経路で落として、書式が変わっていないか見る。
+		std::string oldPlain;
+		std::vector<psd::TextRunSpec> oldRuns;
+		std::vector<psd::TextParagraphSpec> oldParas;
+		parseTagged(t.tagged, t.base, oldPlain, oldRuns, oldParas, nullptr);
+		const bool keepTxt2 = sameFormatting(oldRuns, oldParas, runs, paras);
+
+		if (!psd_->setLayerRichText(index, wide, runs, paras, &err, keepTxt2)) return false;
 
 		t.text   = plain;
 		t.tagged = utf8;
@@ -720,6 +774,14 @@ bool Document::save(const std::string& outPath, bool backup, std::string& err)
 			appserve::logI("backup written: " + bak);
 		}
 	}
+
+	// PSD の末尾には「全レイヤを合成した絵」が入っていて、Explorer や他のツール
+	// はここを見る。テキストを書き換えると当然これは古くなるが、psdtext は
+	// 合成をやり直せない (テキストの描画は Photoshop にしかできない)。古い絵を
+	// そのまま配ると内容が違うプレビューが出回るので、空 (白) にしておく。
+	// Photoshop はレイヤから合成し直すので Photoshop での表示には影響しない。
+	// 「PSD 互換を優先」を切って保存したときに Photoshop 自身がやるのと同じ形。
+	if (dirtyCount() > 0) psd_->setMergedImageSolid();
 
 	// 上書き保存は、開いているファイルを mmap したまま同じパスへ書けないので
 	// いったん一時ファイルへ出してから差し替える。

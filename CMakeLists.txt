@@ -45,6 +45,12 @@ appserve_embed_web(psdtext WEB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/web)
 set(PSDTEXT_VERSION "${PROJECT_VERSION}" CACHE STRING
     "Version stamped into release packages")
 
+# Photoshop 側で走らせる再描画スクリプト。
+# psdtext はテキストの中身しか直せず、描画済み画像は Photoshop でないと作れない
+# (しかも Photoshop は開いただけでは描き直さない)。その最後の一手間を配る。
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/tools/update-text-layers.jsx
+        DESTINATION tools)
+
 appserve_package(psdtext
     VERSION     ${PSDTEXT_VERSION}
     DESCRIPTION "Edit PSD text layers without opening Photoshop")

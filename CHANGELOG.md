@@ -10,6 +10,32 @@ On release, rename the "Unreleased" heading to the version number and start a ne
 
 ## Unreleased
 
+### Fixed
+
+- **Edits never reached Photoshop.** Opening a saved PSD in Photoshop showed the
+  text exactly as it was before the edit — easy to miss, because reopening the
+  file in psdtext showed the change. A PSD keeps a second, document-wide copy of
+  its text information, and **Photoshop reads that one in preference** to the
+  per-layer copy psdtext was updating.
+  - **Body-text-only edits** now update that copy too, keeping fonts, sizes,
+    colours and alignment intact.
+  - **Edits that change formatting** drop it instead, so Photoshop falls back to
+    the per-layer copy. Either way the result is correct.
+
+- **The old picture stayed on screen when Photoshop opened the file.** Only
+  Photoshop can render a text layer, and it **does not redraw text just because
+  it opened a file**. Run the bundled `tools/update-text-layers.jsx` from
+  File > Scripts > Browse... and Photoshop redraws every text layer itself — its
+  own typesetting, so kerning, line breaking and vertical text all come out
+  right, and formatting and alignment are preserved.
+
+- **A saved PSD carried a preview of the text as it was before the edit.** The
+  flattened composite at the end of a PSD — what Explorer and other tools read —
+  was left untouched. psdtext cannot re-composite, so rather than hand out a
+  picture that is no longer true it now leaves that preview empty. Photoshop
+  composites from the layers, so what Photoshop shows is unchanged; this is the
+  same shape Photoshop writes with "Maximize PSD compatibility" off.
+
 ---
 
 ## 0.3.0 — 2026-08-15
