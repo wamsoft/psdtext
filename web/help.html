@@ -14,6 +14,7 @@
 	<a href="#h-rename">Renaming layers in bulk</a>
 	<a href="#h-csv">Bulk editing with CSV</a>
 	<a href="#h-save">How saving works</a>
+	<a href="#h-photoshop">After opening it in Photoshop</a>
 	<a href="#h-keys">Shortcuts</a>
 	<a href="#h-limits" class="warn">What it cannot do</a>
 	<a href="#h-auto">Automation (REPL)</a>
@@ -257,7 +258,7 @@ of the range goes back to pink — not back to the base</pre>
 			box. Resizing the box only reflows <b>paragraph text</b>; for point text
 			Photoshop rebuilds the box from the glyphs. Moving a layer moves the
 			raster stored in the PSD along with it, so nothing looks displaced before
-			Photoshop reopens the file.
+			Photoshop redraws it.
 		</dd>
 		<dt>Reordering (▲▼)</dt>
 		<dd>
@@ -430,7 +431,29 @@ second line",</pre>
 		<li>Entering a path in the save dialog saves under that name and continues editing there</li>
 		<li><b>Layers you did not edit are written back byte for byte</b></li>
 		<li>Visibility toggles are preview-only and are not saved</li>
+		<li>
+			The flattened composite at the end of a PSD — what Explorer and other
+			tools read — is <b>written empty</b>. psdtext cannot re-composite, so
+			rather than hand out a picture that is no longer true it leaves that
+			preview blank. Photoshop composites from the layers, so what Photoshop
+			shows is unaffected
+		</li>
 	</ul>
+</section>
+
+<section id="h-photoshop">
+	<h2>After opening it in Photoshop</h2>
+	<p>
+		Open a saved PSD in Photoshop and <b>the text is the edited text, but the
+		picture on screen is still the old one</b>. Only Photoshop can render a text
+		layer, and it <b>does not redraw text just because it opened the file</b>.
+	</p>
+	<p>
+		Run the bundled <code>tools/update-text-layers.jsx</code> from
+		<b>File &gt; Scripts &gt; Browse...</b> and Photoshop redraws every text layer
+		itself — typesetting, formatting and alignment all come out right — then save.
+		Touching a layer with the type tool does the same for that one layer.
+	</p>
 </section>
 
 <section id="h-keys">
@@ -468,9 +491,8 @@ second line",</pre>
 	</ul>
 	<h3>Redrawn text</h3>
 	<p>
-		The text raster stored in the PSD is not updated until Photoshop reopens the
-		file, so <b>edited text layers are redrawn by the browser</b> instead. That is
-		also an approximation:
+		Only Photoshop can render the text stored in a PSD, so <b>edited text layers
+		are redrawn by the browser</b> instead. That is also an approximation:
 	</p>
 	<ul>
 		<li>Kerning, tracking and line-breaking rules are not reproduced</li>
@@ -492,7 +514,11 @@ second line",</pre>
 		</li>
 		<li>Text cannot be rotated or transformed (only the translation part of the matrix is handled)</li>
 		<li>Reordering is limited to one level; layers cannot be moved in or out of folders</li>
-		<li>The composite thumbnail Photoshop stores in the file stays stale after saving</li>
+		<li>
+			The rendered picture of the text cannot be produced here. Open the file in
+			Photoshop and run <code>tools/update-text-layers.jsx</code>
+			(see "After opening it in Photoshop")
+		</li>
 	</ul>
 </section>
 
