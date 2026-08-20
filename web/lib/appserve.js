@@ -30,6 +30,14 @@ class Appserve {
 		this._stopped = false;
 		this._pollBackoff = 0;
 
+		// サーバが消えたときの自動終了。ブラウザ UI はサーバあってのものなので、
+		// サーバが落ちたら窓も畳む (死んだ UI が残り続けるのを防ぐ)。
+		// 一時的な通信断で閉じないよう、連続失敗が grace ms 続いてから判定する。
+		this.exitOnDisconnect = true;    // ready() の前なら false にできる
+		this.disconnectGraceMs = 6000;
+		this._lostSince = null;
+		this._lostListeners = new Set();
+
 		window.addEventListener('error', (e) => {
 			this._pushError(String(e.message) + ' @ ' + e.filename + ':' + e.lineno);
 		});
@@ -140,6 +148,7 @@ class Appserve {
 			try {
 				const r = await this.get('/_app/poll', { sid: this.sid, wait: 15000 });
 				this._pollBackoff = 0;
+				this._lostSince = null;
 				for (const c of (r.cmds || [])) this._runCommand(c);
 			} catch (e) {
 				if (this._stopped) break;
@@ -148,8 +157,20 @@ class Appserve {
 					try {
 						const hello = await this.get('/_app/hello');
 						this.sid = hello.sid;
+						this._lostSince = null;
 						continue;
 					} catch (e2) { /* サーバが落ちている。下のバックオフへ */ }
+				}
+				// サーバに届かない状態が続いたら「落ちた」と見なす。
+				// HTTP エラー (status あり) は届いている = 生きているので数えない。
+				if (e.status === undefined) {
+					if (this._lostSince === null) this._lostSince = Date.now();
+					else if (Date.now() - this._lostSince >= this.disconnectGraceMs) {
+						this._lost();
+						break;
+					}
+				} else {
+					this._lostSince = null;
 				}
 				this._pollBackoff = Math.min((this._pollBackoff || 250) * 2, 5000);
 				await new Promise(r => setTimeout(r, this._pollBackoff));
@@ -197,6 +218,12 @@ class Appserve {
 	//-----------------------------------------------------------------------
 	async _dispatch(cmd, arg) {
 		switch (cmd) {
+			// サーバの終了予告 (stopServer が畳む直前に投げる)。
+			// 通信断の検出を待たずにその場で窓を閉じる。
+			case 'shutdown': {
+				setTimeout(() => this._lost(), 0);   // 応答を返してから畳む
+				return true;
+			}
 			case 'eval': {
 				// 式でも文でも通るように、まず式として評価してみる
 				let fn;
@@ -307,6 +334,51 @@ class Appserve {
 			if (!this.sid || this._pollBackoff === 0) continue;
 			try { await this.post('/_app/hb', null, { sid: this.sid }); } catch (e) {}
 		}
+	}
+
+	/// サーバが落ちたときに呼ばれる関数を登録する (自動終了より先に走る)。
+	/// 戻り値は解除関数。
+	onDisconnected(fn) {
+		this._lostListeners.add(fn);
+		return () => this._lostListeners.delete(fn);
+	}
+
+	/// サーバが消えたと判断したときの後始末 + 自動終了
+	_lost() {
+		if (this._stopped) return;
+		this._stopped = true;
+		for (const es of this._sources.values()) { try { es.close(); } catch (e) {} }
+		this._sources.clear();
+		for (const fn of this._lostListeners) {
+			try { fn(); } catch (e) { this._pushError('onDisconnected: ' + e.message); }
+		}
+		if (!this.exitOnDisconnect) return;
+
+		// --app モードの窓は script から閉じられる。閉じられない文脈
+		// (自分で開いたタブなど) のために、少し待って画面を差し替える。
+		try { window.close(); } catch (e) {}
+		setTimeout(() => this._showClosed(), 400);
+	}
+
+	_showClosed() {
+		if (document.getElementById('__appserve_closed')) return;
+		const name = (this.info && this.info.appName) || 'アプリ';
+		const box = document.createElement('div');
+		box.id = '__appserve_closed';
+		box.setAttribute('style', [
+			'position:fixed', 'inset:0', 'z-index:2147483647',
+			'display:flex', 'flex-direction:column',
+			'align-items:center', 'justify-content:center', 'gap:10px',
+			'background:#16181c', 'color:#c8ccd2',
+			'font:14px/1.6 system-ui, sans-serif',
+		].join(';'));
+		const h = document.createElement('div');
+		h.textContent = name + ' は終了しました';
+		const p = document.createElement('div');
+		p.setAttribute('style', 'opacity:.6;font-size:13px');
+		p.textContent = 'このウィンドウは閉じて構いません。';
+		box.append(h, p);
+		document.body.appendChild(box);
 	}
 
 	_bye() {
